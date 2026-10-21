@@ -170,7 +170,6 @@ final class SettingsModel: ObservableObject {
     @Published var gap: Double
     @Published var focusMode: FocusMode
     @Published var accessibilityGranted = ActivationClickGuard.isAuthorized
-    @Published var panelHeight: CGFloat = 740
     @Published var applying = false
     @Published var message = "Changes apply when you choose Save."
     @Published var failed = false
@@ -273,15 +272,16 @@ struct Panes: Shape {
 }
 
 struct SettingsView: View {
-    static let size = NSSize(width: 380, height: 740)
+    static let width: CGFloat = 380
     @ObservedObject var model: SettingsModel
     private let accent = Color(red: 0.20, green: 0.53, blue: 0.62)
     private let shortcuts = [
-        ("Previous / next window", "H / L"),
+        ("Previous / next window", "H / L or ← / →"),
         ("Move window left / right", "J / K"),
-        ("Half / full width", "2 / 0"),
+        ("Half width", "2"),
+        ("Full width", "0 / F"),
         ("Toggle half / full", "R"),
-        ("Float window", "T"),
+        ("Toggle floating", "T"),
         ("First / last window", "Home / End"),
         ("Open settings", "S"),
         ("Pause window management", "Q")
@@ -289,118 +289,96 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 11) {
-                        Panes().stroke(.white, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                            .padding(7).frame(width: 40, height: 40)
-                            .background(accent.gradient, in: RoundedRectangle(cornerRadius: 11))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Paneru").font(.system(size: 22, weight: .semibold, design: .rounded))
-                            Text("Your windows, at your pace.").font(.system(size: 12)).foregroundStyle(.secondary)
-                        }
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Panes().stroke(.white, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                        .padding(5).frame(width: 28, height: 28)
+                        .background(accent.gradient, in: RoundedRectangle(cornerRadius: 8))
+                    Text("Paneru").font(.system(size: 17, weight: .semibold, design: .rounded))
+                    Text("Settings").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Spacer()
+                }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Activate windows", systemImage: "cursorarrow.click")
-                            .font(.system(size: 13, weight: .medium))
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        Text("Activate on").font(.system(size: 12, weight: .medium))
+                        Spacer(minLength: 0)
                         Picker("Activate windows", selection: $model.focusMode) {
                             Text("Mouse over").tag(FocusMode.hover)
                             Text("Click").tag(FocusMode.click)
-                        }.pickerStyle(.segmented).labelsHidden()
-                        Text(model.focusMode == .hover
-                             ? "Moving the pointer over a window activates it."
-                             : "The first click only activates. Click again to interact.")
+                        }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                    }
+                    Text(model.focusMode == .hover
+                         ? "Hover over a window to activate it."
+                         : "First click activates. Click again to interact.")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                    if model.focusMode == .click && !model.accessibilityGranted {
+                        Button("Allow Click Mode…", action: model.allowClickMode)
+                        Text("Allow Accessibility for Paneru Settings, then choose Save.")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
-                        if model.focusMode == .click && !model.accessibilityGranted {
-                            Button("Allow Click Mode…", action: model.allowClickMode)
-                            Text("Allow Accessibility for Paneru Settings, then choose Save.")
-                                .font(.system(size: 11)).foregroundStyle(.secondary)
-                        }
-                    }.padding(14).background(.background, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }.padding(10).background(.background, in: RoundedRectangle(cornerRadius: 9))
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Label("Scroll speed", systemImage: "hand.draw")
-                            Spacer()
-                            Text(String(format: "%.2f×", model.speed)).monospacedDigit().foregroundStyle(.secondary)
-                        }.font(.system(size: 13, weight: .medium))
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text("Scroll speed").frame(width: 78, alignment: .leading)
                         Slider(value: $model.speed, in: 0.2...1.5, step: 0.05)
                             .accessibilityLabel("Scroll speed")
-                        HStack {
-                            Text("Slower")
-                            Spacer()
-                            Text("Faster")
-                        }.font(.system(size: 11)).foregroundStyle(.secondary)
-                    }.padding(14).background(.background, in: RoundedRectangle(cornerRadius: 12))
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Label("Window gap", systemImage: "rectangle.split.2x1")
-                            Spacer()
-                            Text("\(Int(model.gap)) pt").monospacedDigit().foregroundStyle(.secondary)
-                        }.font(.system(size: 13, weight: .medium))
+                            .help("Move left for slower scrolling, right for faster scrolling.")
+                        Text(String(format: "%.2f×", model.speed)).monospacedDigit()
+                            .foregroundStyle(.secondary).frame(width: 42, alignment: .trailing)
+                    }
+                    HStack(spacing: 8) {
+                        Text("Window gap").frame(width: 78, alignment: .leading)
                         Slider(value: $model.gap, in: 0...24, step: 2)
                             .accessibilityLabel("Window gap")
-                        HStack(spacing: model.gap) {
-                            previewWindow
-                            previewWindow
-                        }.frame(height: 38).padding(.top, 2)
-                        Text("Gap changes briefly refresh the window layout.")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                    }.padding(14).background(.background, in: RoundedRectangle(cornerRadius: 12))
+                            .help("Gap changes briefly refresh the window layout.")
+                        Text("\(Int(model.gap)) pt").monospacedDigit()
+                            .foregroundStyle(.secondary).frame(width: 42, alignment: .trailing)
+                    }
+                }.font(.system(size: 12)).controlSize(.small)
+                    .padding(10).background(.background, in: RoundedRectangle(cornerRadius: 9))
 
-                    VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
                         Label("Keyboard shortcuts", systemImage: "keyboard").font(.system(size: 12, weight: .medium))
-                        VStack(spacing: 9) {
-                            Text("Hold Control + Option, then press:")
-                                .font(.system(size: 11)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                            ForEach(shortcuts, id: \.0) { item in
-                                HStack {
-                                    Text(item.0).font(.system(size: 12))
-                                    Spacer()
-                                    Text(item.1).font(.system(size: 11, weight: .medium, design: .monospaced))
-                                        .padding(.horizontal, 7).padding(.vertical, 3)
-                                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-                                }
-                            }
+                        Spacer()
+                        Text("Control + Option").font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    VStack(spacing: 3) {
+                        ForEach(shortcuts, id: \.0) { item in
+                            HStack {
+                                Text(item.0).font(.system(size: 11))
+                                Spacer()
+                                Text(item.1).font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .padding(.horizontal, 6).padding(.vertical, 1)
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                            }.frame(minHeight: 16)
                         }
                     }
-                    Text("Three fingers scroll your windows. Two fingers scroll your apps.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }.padding(18)
-            }
+                }
+                Text("Three fingers: windows · Two fingers: apps")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }.padding(12)
             Divider()
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     if model.applying { ProgressView().controlSize(.small) }
                     else { Image(systemName: model.failed ? "exclamationmark.circle" : "checkmark.circle") }
-                    Text(model.message)
-                }.font(.system(size: 11)).foregroundStyle(model.failed ? Color.red : Color.secondary)
+                    Text(model.message).lineLimit(2)
+                }.font(.system(size: 10)).foregroundStyle(model.failed ? Color.red : Color.secondary)
+                    .frame(height: 26, alignment: .leading)
                 HStack {
                     Button("Reset Defaults", action: model.reset)
                     Spacer()
                     Button("Save", action: model.save).buttonStyle(.borderedProminent)
                         .disabled(!model.changed || model.applying)
                 }
-            }.padding(.horizontal, 18).padding(.vertical, 14)
-        }.frame(width: Self.size.width, height: model.panelHeight)
+            }.controlSize(.small).padding(.horizontal, 12).padding(.vertical, 10)
+        }.frame(width: Self.width).fixedSize(horizontal: false, vertical: true)
             .background(Color(nsColor: .windowBackgroundColor))
             .tint(accent)
             .disabled(model.applying)
-    }
-
-    private var previewWindow: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 3) {
-                ForEach(0..<3) { _ in Circle().fill(accent.opacity(0.3)).frame(width: 3, height: 3) }
-                Spacer()
-            }.padding(7)
-            Divider().opacity(0.4)
-            Spacer()
-        }.frame(maxWidth: .infinity)
-            .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent.opacity(0.25), lineWidth: 1))
     }
 }
 
@@ -472,9 +450,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        popover.contentViewController = NSHostingController(rootView: SettingsView(model: model)
+        let controller = NSHostingController(rootView: SettingsView(model: model)
             .onExitCommand { [weak self] in self?.popover.performClose(nil) })
-        popover.contentSize = SettingsView.size
+        controller.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = controller
+        popover.contentSize = controller.view.fittingSize
         popover.behavior = .transient
         popover.delegate = self
         model.willApply = { [weak self] in
@@ -536,8 +516,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     @objc func openSettings() {
         guard let button = item.button else { return }
         if !popover.isShown { model.refresh() }
-        model.panelHeight = min(SettingsView.size.height, max(420, (button.window?.screen?.visibleFrame.height ?? 780) - 24))
-        popover.contentSize = NSSize(width: SettingsView.size.width, height: model.panelHeight)
+        if let view = popover.contentViewController?.view {
+            view.layoutSubtreeIfNeeded()
+            popover.contentSize = view.fittingSize
+        }
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()

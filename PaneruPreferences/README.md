@@ -12,8 +12,9 @@ Click the two-pane icon to open the settings dropdown, or press Control–Option
 Click the icon again, click outside, or press Escape to dismiss it. The popover
 stays attached to the icon and cannot be detached into a separate window.
 Right-click the icon for pause, restart, and quit controls.
-The shortcut reference is always expanded. The popover adapts to the screen's
-available height and scrolls when its contents do not fit.
+The shortcut reference is always expanded. The compact popover fits its controls,
+all nine shortcut rows, and the Save button without a scrolling area. The speed
+and gap sliders share a compact group; hovering over either slider shows its hint.
 
 **Activate windows** offers two modes:
 
@@ -82,3 +83,11 @@ and the subsequent click incremented the button once. The automation tool sends
 an activation click before its target click. Test windows were closed, their
 temporary floating rule was removed, and diagnostics were disabled. Click mode was
 left active. The shortcut list has no disclosure control and remains expanded.
+
+Version 1.3 removes the scrolling area and the large gap preview, tightens the
+control rows, and sizes the popover to its content. The reference now includes
+all 15 registered chords, including the arrow-key alternatives and F for full
+width. Native inspection confirmed all controls and shortcut rows were visible
+together without a scroll area or scrollbar. The speed slider and focus picker
+were exercised without saving, leaving the user's current Mouse over mode,
+0.35 speed, and 4-point gap unchanged.

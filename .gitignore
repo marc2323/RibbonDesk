@@ -2,3 +2,12 @@
 .swiftpm/
 dist/
 .DS_Store
+
+# Local credentials and signing keys
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.key
+*.pem

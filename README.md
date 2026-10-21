@@ -1,4 +1,19 @@
-# RibbonDesk 0.11
+# RibbonDesk
+
+The current setup uses the installed [Paneru](https://github.com/karinushka/paneru)
+engine with a native menu-bar settings companion in
+[PaneruPreferences](PaneruPreferences/README.md). The companion provides a compact
+popover for activation mode, scroll speed, window gaps, and the full shortcut
+reference. Build it with `zsh PaneruPreferences/build.sh`.
+
+The original RibbonDesk prototype is paused. Its source, tests, assets, scripts,
+and validation records are retained here alongside the Paneru companion. Run
+only one window-management engine at a time.
+
+This repository tracks project files. Generated build caches, app bundles,
+release outputs, local signing credentials, and machine preferences remain local.
+
+## RibbonDesk prototype 0.11 (paused)
 
 A native macOS scrolling window manager written in Swift, AppKit, and SwiftUI.
 Current evidence is in [Docs/VALIDATION.md](Docs/VALIDATION.md); earlier validation
