@@ -1,0 +1,88 @@
+{
+  "target": 3,
+  "managed": 8,
+  "fixtureClosed": true,
+  "originalsSaved": true,
+  "windows": [
+    {
+      "app": "Notion",
+      "number": 10062,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        3
+      ]
+    },
+    {
+      "app": "ChatGPT",
+      "number": 15501,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ]
+    },
+    {
+      "app": "Firefox",
+      "number": 19983,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        3
+      ]
+    },
+    {
+      "app": "Firefox",
+      "number": 19986,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        3
+      ]
+    },
+    {
+      "app": "ForkLift",
+      "number": 1122,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ]
+    },
+    {
+      "app": "RibbonDesk",
+      "number": 23449,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ]
+    },
+    {
+      "app": "Terminal",
+      "number": 18777,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ]
+    },
+    {
+      "app": "Finder",
+      "number": 16438,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "stage": "before sliding-release and smoothing fix",
+  "physicalFeedback": "Snaps, but still jittery",
+  "events": {
+    "input": 1221,
+    "touch": 1229,
+    "intent": 583,
+    "move": 555,
+    "coast-start": 11,
+    "finish": 10,
+    "snap-start": 9,
+    "snap-ended": 4,
+    "coast": 190
+  },
+  "moveMilliseconds": {
+    "median": 1.5130833198782057,
+    "p95": 9.494791651377454,
+    "maximum": 31.59079168108292
+  },
+  "finding": "Several sliding staggered lifts cancelled inertia within 4\u20139 ms of starting. Added release drift tolerance and regression coverage."
+}

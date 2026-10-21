@@ -1,0 +1,10 @@
+path:                       /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/.build/RibbonDeskTestWindows.app (0xf284)
+identifier:                 local.prototype.RibbonDesk.test-windows
+path:                       /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/RibbonDesk.app (0xf410)
+identifier:                 local.prototype.RibbonDesk
+version:                    5.0 ({length = 32, bytes = 0x05000000 00000000 00000000 00000000 ... 00000000 00000000 })
+min version:                13.0 ({length = 32, bytes = 0x0d000000 00000000 00000000 00000000 ... 00000000 00000000 })
+path:                       /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/trackpad-preview/RibbonDeskPreview.app (0xf41c)
+identifier:                 local.prototype.RibbonDesk.preview
+version:                    5.0 ({length = 32, bytes = 0x05000000 00000000 00000000 00000000 ... 00000000 00000000 })
+min version:                13.0 ({length = 32, bytes = 0x0d000000 00000000 00000000 00000000 ... 00000000 00000000 })

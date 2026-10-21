@@ -1,0 +1,12 @@
+Final physical trackpad test — 2026-10-20
+Single built-in Retina display; exactly two disposable Cocoa windows enrolled.
+User confirmation: Scrolled both directions (request included a quick reversal).
+New frame notifications: 272
+Window 1: x range (-440, 16); width 894, height 763 throughout — PASS
+Window 2: x range (466, 922); width 894, height 763 throughout — PASS
+RibbonDesk Disposable 1: exact original frame (24, 242, 894, 528) restored — PASS
+RibbonDesk Disposable 2: exact original frame (458, 212, 894, 528) restored — PASS
+Dashboard: Paused. All surviving captured windows were restored; no shortcuts remain registered.
+RibbonDesk quit after restoration; dedicated test fixture stopped.
+Physical latency not measured; target-app compatibility limited to this fixture.
+Canonical executable SHA-256: 2a1b80f5336a343413af149080b832b3fcec581740c1b8050b6734ec5c1d80d0

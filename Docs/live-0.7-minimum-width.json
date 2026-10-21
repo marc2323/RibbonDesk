@@ -1,0 +1,19 @@
+{
+  "app": "RibbonDesk",
+  "widthPreset": "one third, clamped to native minimum",
+  "frame": {
+    "Height": 788,
+    "Width": 1000,
+    "X": 376,
+    "Y": 25
+  },
+  "usable": {
+    "height": 875,
+    "width": 1376,
+    "x": 0,
+    "y": 25
+  },
+  "fullyVisible": true,
+  "edgeError": 0,
+  "membershipsUnchanged": true
+}

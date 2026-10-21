@@ -1,0 +1,17 @@
+/Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/RibbonDesk.app
+  ID: local.prototype.RibbonDesk
+  Version: 0.7.0 (7)
+  signed executable SHA256: 70e6c2b192ac9b15d266ccddd16b08e4214b8a9724e2001c32c53b7720883e46
+/Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/trackpad-preview/RibbonDeskPreview.app
+  ID: local.prototype.RibbonDesk.preview
+  Version: 0.7.0 (7)
+  signed executable SHA256: c1d295cbc833ce8c1f179d0f2312bb6cfce8b66d9de6fe4b0aec1d71c5e2f78d
+/Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/.build/RibbonDeskTestWindows.app
+  ID: local.prototype.RibbonDesk.test-windows
+  Version: None (None)
+  signed executable SHA256: e68a32b95d2ee81eac2e192c48027bf6a46ed9f5858b7fe956bf918a7b9ed757
+Canonical Launch Services registrations: 1
+path:                       /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/RibbonDesk.app (0xf488)
+identifier:                 local.prototype.RibbonDesk
+version:                    7.0 ({length = 32, bytes = 0x07000000 00000000 00000000 00000000 ... 00000000 00000000 })
+min version:                13.0 ({length = 32, bytes = 0x0d000000 00000000 00000000 00000000 ... 00000000 00000000 })

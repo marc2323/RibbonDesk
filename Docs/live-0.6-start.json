@@ -1,0 +1,71 @@
+{
+  "managed": 4,
+  "activeSpace": 1,
+  "membershipChanges": [],
+  "windows": [
+    {
+      "app": "Notion",
+      "number": 10062,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "frame": {
+        "Height": 875,
+        "Width": 1374,
+        "X": -1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "Firefox",
+      "number": 19983,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "frame": {
+        "Height": 875,
+        "Width": 1373,
+        "X": 4,
+        "Y": 25
+      }
+    },
+    {
+      "app": "Firefox",
+      "number": 19986,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "frame": {
+        "Height": 875,
+        "Width": 1374,
+        "X": 1304,
+        "Y": 25
+      }
+    },
+    {
+      "app": "RibbonDesk",
+      "number": 24090,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "frame": {
+        "Height": 788,
+        "Width": 1080,
+        "X": 1304,
+        "Y": 25
+      }
+    }
+  ]
+}

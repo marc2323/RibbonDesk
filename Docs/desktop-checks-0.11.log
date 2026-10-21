@@ -1,0 +1,24 @@
+PASS Local two-finger defaults
+PASS Demo controller
+PASS App animation flag borrowing, caching, restoration debt, and retry
+PASS Isolated motion settings persistence, validation, propagation, and reset
+PASS Actual convergence helper: target echo, late animation, deadline, cancellation
+PASS Live controller queue, focus, cancellation, restoration, and AX failure (fake bridge)
+PASS Delayed AX responses, latest intent, in-flight cancellation, and quit
+PASS Three-finger contact math and inertia
+PASS Three-finger routing, two-finger defaults, reversal, interruption, settings, and settling
+PASS Two displays, 22 windows, fast scrolling, snapshot-before-write, and topology changes
+PASS Persistent recovery, relaunch, private file, and startup failures
+PASS Separate desktops, saved offsets, append-before-write, self inclusion, overview, and legacy recovery
+PASS New windows, idle-only discovery, Settings inclusion, stable order, and recovery
+PASS Animated edge snapping, exact alignment, interruption, and restoration
+PASS Native constraints, full-height fallback, latest target, idle clock, and restoration
+PASS Explicit sidebar/keyboard selection cancels production momentum and stale callbacks
+PASS Pointer focus at final frames, right-half hit, pointer movement, gaps, floating panels, and explicit priority
+PASS Pointer display ownership, frontmost keyboard routing, empty monitor fallback, and new shortcut actions
+PASS Production short flicks, no-motion contacts, reversal, leading-edge ordering, bounded stacking, and idle work
+PASS Parked-overlap stacking outcome, activation isolation, other-display/floating preservation, and boundary-only raises
+PASS Manual display pacing, one shared barrier, latest intent, no hot-path inventory, bounded UI, and final validation
+PASS Immediate Space/overview/topology invalidation, refresh, and restoration
+PASS Explicit diagnostics, isolated destination, deadline renewal, row cap, and private output
+231 desktop assertions; 0 failures. Real AppKit view/controller; fake AX bridge. No user windows accessed.

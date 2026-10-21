@@ -1,0 +1,41 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[1/4] Write swift-version--1AB21518FC5DEDBE.txt
+[3/6] Emitting module RibbonCore
+[4/6] Compiling RibbonCore StripLayout.swift
+[4/8] Write sources
+[6/11] Emitting module RibbonCoreChecks
+[7/11] Compiling RibbonCoreChecks StripLayoutTests.swift
+[8/11] Compiling RibbonCoreChecks GestureSettlementChecks.swift
+[8/11] Write Objects.LinkFileList
+[9/11] Linking RibbonCoreChecks
+[10/11] Applying RibbonCoreChecks
+Build of product 'RibbonCoreChecks' complete! (2.19s)
+PASS Width preservation
+PASS Focus viewport and endpoints
+PASS Neighbor spacing
+PASS Reachable overflow handles
+PASS Identity-preserving reorder
+PASS Floating exclusions
+PASS Width presets
+PASS Invalid geometry and oversize windows
+PASS Display coordinates
+PASS 1,000-operation mixed sequence
+PASS 1,004 focus intents before one layout
+PASS Continuous pan independent of old focus
+PASS Pan endpoints and floating exclusions
+PASS Native horizontal input normalization
+PASS 2,000 scroll samples before one layout
+PASS Partially visible windows track until fully outside
+PASS Incoming slivers and endpoint restoration keep shared grid
+PASS Half pair fills usable screen
+PASS Half/full grid and odd tail
+PASS Continuous gesture and stable grid settlement
+PASS Half/full presets and native minimums
+PASS Grid empty, single, invalid and tiny geometry
+PASS Grid reorder, reconcile and floating
+PASS 1,200 grid operations with fractional and negative origins
+PASS Motion tuning (27 assertions; 0 failures)
+PASS Gesture settlement (237 assertions; 0 failures)
+24 layout checks + motion and settlement checks; 35897 assertions; 0 failures. Pure RibbonCore only; no AppKit/AX controller launched.

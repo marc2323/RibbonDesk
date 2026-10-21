@@ -1,0 +1,1174 @@
+{
+  "current" : [
+    {
+      "height" : 763,
+      "key" : true,
+      "title" : "RibbonDesk Disposable 1",
+      "width" : 894,
+      "x" : 16,
+      "y" : 41
+    },
+    {
+      "height" : 763,
+      "key" : false,
+      "title" : "RibbonDesk Disposable 2",
+      "width" : 894,
+      "x" : 922,
+      "y" : 41
+    }
+  ],
+  "history" : [
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 24,
+          "y" : 242
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 458,
+          "y" : 212
+        }
+      ],
+      "time" : 1792542328.2995291
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 22,
+          "y" : 205
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 458,
+          "y" : 212
+        }
+      ],
+      "time" : 1792542363.061218
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 22,
+          "y" : 205
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 526,
+          "y" : 187
+        }
+      ],
+      "time" : 1792542363.0650868
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 21,
+          "y" : 176
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 526,
+          "y" : 187
+        }
+      ],
+      "time" : 1792542363.0765851
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 21,
+          "y" : 176
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 591,
+          "y" : 163
+        }
+      ],
+      "time" : 1792542363.0785918
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 20,
+          "y" : 146
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 591,
+          "y" : 163
+        }
+      ],
+      "time" : 1792542363.0924659
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 20,
+          "y" : 146
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 661,
+          "y" : 137
+        }
+      ],
+      "time" : 1792542363.0941072
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 19,
+          "y" : 121
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 661,
+          "y" : 137
+        }
+      ],
+      "time" : 1792542363.1100841
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 19,
+          "y" : 121
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 722,
+          "y" : 115
+        }
+      ],
+      "time" : 1792542363.111948
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 18,
+          "y" : 101
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 722,
+          "y" : 115
+        }
+      ],
+      "time" : 1792542363.126801
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 18,
+          "y" : 101
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 772,
+          "y" : 96
+        }
+      ],
+      "time" : 1792542363.129292
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 17,
+          "y" : 85
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 772,
+          "y" : 96
+        }
+      ],
+      "time" : 1792542363.1434231
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 17,
+          "y" : 85
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 812,
+          "y" : 82
+        }
+      ],
+      "time" : 1792542363.1456699
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 17,
+          "y" : 72
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 812,
+          "y" : 82
+        }
+      ],
+      "time" : 1792542363.159981
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 17,
+          "y" : 72
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 843,
+          "y" : 70
+        }
+      ],
+      "time" : 1792542363.162921
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 62
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 843,
+          "y" : 70
+        }
+      ],
+      "time" : 1792542363.1768861
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 62
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 867,
+          "y" : 61
+        }
+      ],
+      "time" : 1792542363.1800199
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 55
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 867,
+          "y" : 61
+        }
+      ],
+      "time" : 1792542363.192821
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 55
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 886,
+          "y" : 55
+        }
+      ],
+      "time" : 1792542363.19524
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 49
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 886,
+          "y" : 55
+        }
+      ],
+      "time" : 1792542363.2095342
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 49
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 900,
+          "y" : 49
+        }
+      ],
+      "time" : 1792542363.210525
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 45
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 900,
+          "y" : 49
+        }
+      ],
+      "time" : 1792542363.226434
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 45
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 910,
+          "y" : 46
+        }
+      ],
+      "time" : 1792542363.2290721
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 43
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 910,
+          "y" : 46
+        }
+      ],
+      "time" : 1792542363.243449
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 43
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 917,
+          "y" : 43
+        }
+      ],
+      "time" : 1792542363.2459359
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 42
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 917,
+          "y" : 43
+        }
+      ],
+      "time" : 1792542363.2601299
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 42
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 920,
+          "y" : 42
+        }
+      ],
+      "time" : 1792542363.2627978
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 42
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.2767501
+    },
+    {
+      "frames" : [
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.280319
+    },
+    {
+      "frames" : [
+        {
+          "height" : 573,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 528,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.3435411
+    },
+    {
+      "frames" : [
+        {
+          "height" : 573,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 563,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.3480911
+    },
+    {
+      "frames" : [
+        {
+          "height" : 608,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 563,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.360235
+    },
+    {
+      "frames" : [
+        {
+          "height" : 608,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 596,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.363884
+    },
+    {
+      "frames" : [
+        {
+          "height" : 642,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 596,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.3768768
+    },
+    {
+      "frames" : [
+        {
+          "height" : 642,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 632,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.3804431
+    },
+    {
+      "frames" : [
+        {
+          "height" : 671,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 632,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.402199
+    },
+    {
+      "frames" : [
+        {
+          "height" : 671,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 663,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4072161
+    },
+    {
+      "frames" : [
+        {
+          "height" : 714,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 663,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4269021
+    },
+    {
+      "frames" : [
+        {
+          "height" : 714,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 708,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4307461
+    },
+    {
+      "frames" : [
+        {
+          "height" : 728,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 708,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4435549
+    },
+    {
+      "frames" : [
+        {
+          "height" : 728,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 724,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.447305
+    },
+    {
+      "frames" : [
+        {
+          "height" : 739,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 724,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4602342
+    },
+    {
+      "frames" : [
+        {
+          "height" : 739,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 736,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4648209
+    },
+    {
+      "frames" : [
+        {
+          "height" : 748,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 736,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.476732
+    },
+    {
+      "frames" : [
+        {
+          "height" : 748,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 746,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4808741
+    },
+    {
+      "frames" : [
+        {
+          "height" : 754,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 746,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4935479
+    },
+    {
+      "frames" : [
+        {
+          "height" : 754,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 753,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.4999552
+    },
+    {
+      "frames" : [
+        {
+          "height" : 759,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 753,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.5097132
+    },
+    {
+      "frames" : [
+        {
+          "height" : 759,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 758,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.5114989
+    },
+    {
+      "frames" : [
+        {
+          "height" : 762,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 758,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.526952
+    },
+    {
+      "frames" : [
+        {
+          "height" : 762,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 761,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.53159
+    },
+    {
+      "frames" : [
+        {
+          "height" : 763,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 761,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.543268
+    },
+    {
+      "frames" : [
+        {
+          "height" : 763,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 763,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.5452399
+    },
+    {
+      "frames" : [
+        {
+          "height" : 763,
+          "key" : true,
+          "title" : "RibbonDesk Disposable 1",
+          "width" : 894,
+          "x" : 16,
+          "y" : 41
+        },
+        {
+          "height" : 763,
+          "key" : false,
+          "title" : "RibbonDesk Disposable 2",
+          "width" : 894,
+          "x" : 922,
+          "y" : 41
+        }
+      ],
+      "time" : 1792542363.6704421
+    }
+  ],
+  "original" : [
+    {
+      "height" : 528,
+      "key" : false,
+      "title" : "RibbonDesk Disposable 1",
+      "width" : 894,
+      "x" : 24,
+      "y" : 242
+    },
+    {
+      "height" : 528,
+      "key" : false,
+      "title" : "RibbonDesk Disposable 2",
+      "width" : 894,
+      "x" : 458,
+      "y" : 212
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "test": "Intentional SIGTERM of only the built RibbonDesk process",
+  "snapshot_preserved": true,
+  "pending_before": 7,
+  "snapshot_id": "174C89F0-86DC-4572-A71B-3F323C71291E",
+  "snapshot_sha256": "553947bb98d9947e7fa07b341900a0860f2c72e8f5ed0600d7d6d9bdcf3be365",
+  "recovered_snapshot_unchanged": true,
+  "pending_after": 0,
+  "fixture_geometry_exact": true,
+  "minimized_unchanged": true,
+  "all_saved_frames_verified": true,
+  "window_count": 7,
+  "finder_kernel_start_fallback_verified": true,
+  "note": "Initial recovery restored six frames; Finder with no AppKit launch date exposed the missing fallback. The corrected build restored the remaining Finder frame from the same file."
+}

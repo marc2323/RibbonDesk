@@ -1,0 +1,20 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write swift-version--1AB21518FC5DEDBE.txt
+Build of product 'RibbonCoreChecks' complete! (0.15s)
+PASS Width preservation
+PASS Focus viewport and endpoints
+PASS Neighbor spacing
+PASS Reachable overflow handles
+PASS Identity-preserving reorder
+PASS Floating exclusions
+PASS Width presets
+PASS Invalid geometry and oversize windows
+PASS Display coordinates
+PASS 1,000-operation mixed sequence
+PASS 1,004 focus intents before one layout
+PASS Continuous pan independent of old focus
+PASS Pan endpoints and floating exclusions
+PASS Native horizontal input normalization
+PASS 2,000 scroll samples before one layout
+15 checks; 4547 assertions; 0 failures. Pure RibbonCore only; no AppKit/AX controller launched.

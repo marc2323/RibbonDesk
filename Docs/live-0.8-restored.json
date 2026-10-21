@@ -1,0 +1,56 @@
+{
+  "captured": 8,
+  "pending": 0,
+  "restored": 7,
+  "maxFrameError": 1,
+  "membershipsUnchanged": true,
+  "windows": [
+    {
+      "app": "Notion",
+      "number": 10062,
+      "maxFrameError": 0,
+      "membershipsUnchanged": true
+    },
+    {
+      "app": "Firefox",
+      "number": 19983,
+      "maxFrameError": 1,
+      "membershipsUnchanged": true
+    },
+    {
+      "app": "Firefox",
+      "number": 19986,
+      "maxFrameError": 1,
+      "membershipsUnchanged": true
+    },
+    {
+      "app": "RibbonDesk",
+      "number": 25370,
+      "maxFrameError": 0,
+      "membershipsUnchanged": true
+    },
+    {
+      "app": "System Settings",
+      "number": 24644,
+      "closed": true
+    },
+    {
+      "app": "System Settings",
+      "number": 25402,
+      "maxFrameError": 0,
+      "membershipsUnchanged": true
+    },
+    {
+      "app": "ChatGPT",
+      "number": 15501,
+      "maxFrameError": 0,
+      "membershipsUnchanged": true
+    },
+    {
+      "app": "ForkLift",
+      "number": 1122,
+      "maxFrameError": 0,
+      "membershipsUnchanged": true
+    }
+  ]
+}

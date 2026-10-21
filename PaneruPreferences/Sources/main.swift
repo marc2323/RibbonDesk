@@ -1,0 +1,593 @@
+import AppKit
+import SwiftUI
+import Foundation
+
+enum FocusMode: String, Codable, CaseIterable, Sendable {
+    case hover, click
+}
+
+struct Preferences: Codable, Equatable, Sendable {
+    var speed: Double
+    var gap: Int
+    var focusMode: FocusMode = .hover
+    static let defaults = Preferences(speed: 0.65, gap: 6)
+
+    init(speed: Double, gap: Int, focusMode: FocusMode = .hover) {
+        self.speed = speed
+        self.gap = gap
+        self.focusMode = focusMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        speed = try values.decode(Double.self, forKey: .speed)
+        gap = try values.decode(Int.self, forKey: .gap)
+        // Existing installations have only speed and gap. Preserve both values.
+        focusMode = try values.decodeIfPresent(FocusMode.self, forKey: .focusMode) ?? .hover
+    }
+
+    var validated: Preferences {
+        Preferences(speed: speed.isFinite ? min(1.5, max(0.2, speed)) : 0.65,
+                    gap: Int((Double(min(24, max(0, gap))) / 2).rounded()) * 2,
+                    focusMode: focusMode)
+    }
+}
+
+enum PreferenceFiles {
+    static let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/paneru")
+    static let json = directory.appendingPathComponent("preferences.json")
+    static let lua = directory.appendingPathComponent("preferences.lua")
+    static let script = directory.appendingPathComponent("init.lua")
+
+    static func read() -> Preferences {
+        guard let data = try? Data(contentsOf: json),
+              let value = try? JSONDecoder().decode(Preferences.self, from: data) else { return .defaults }
+        return value.validated
+    }
+
+    static func write(_ preferences: Preferences) throws {
+        let value = preferences.validated
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(value).write(to: json, options: .atomic)
+        let speed = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.speed)
+        let hover = value.focusMode == .hover ? "true" : "false"
+        let source = "-- Written by Paneru Settings.\nreturn { speed = \(speed), gap = \(value.gap), focus_follows_mouse = \(hover) }\n"
+        try Data(source.utf8).write(to: lua, options: .atomic)
+        for file in [json, lua] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        }
+    }
+
+    static func reload() throws {
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: script.path)
+    }
+}
+
+struct CommandFailure: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
+enum Engine {
+    static let binary = "/opt/homebrew/bin/paneru"
+    static let service = "gui/\(getuid())/com.github.karinushka.paneru"
+
+    @discardableResult
+    static func run(_ arguments: [String], executable: String = binary, timeout: Double = 5) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+        try process.run()
+        guard finished.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            throw CommandFailure(message: "Paneru did not respond in time.")
+        }
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        guard process.terminationStatus == 0 else {
+            throw CommandFailure(message: String(text.prefix(500)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return text
+    }
+
+    static func isRunning() -> Bool {
+        guard let text = try? run(["print", service], executable: "/bin/launchctl", timeout: 2) else { return false }
+        return text.contains("state = running")
+    }
+
+    static func start() throws {
+        try run(["start"])
+        if !isRunning() { try run(["start"]) }
+        Thread.sleep(forTimeInterval: 0.5)
+        for _ in 0..<12 {
+            if (try? run(["query", "active", "--json"], timeout: 2)) != nil { return }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        throw CommandFailure(message: "Paneru could not start. Check its Accessibility permission.")
+    }
+
+    static func stop() throws {
+        guard isRunning() else { return }
+        try run(["send-cmd", "quit"])
+        for _ in 0..<30 {
+            if !isRunning() { return }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        throw CommandFailure(message: "Paneru is still closing. Please try again.")
+    }
+
+    static func normalizeActiveWorkspace() throws {
+        let text = try run(["query", "state", "--json"])
+        guard let data = text.data(using: .utf8),
+              let state = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let workspaces = state["virtual_workspaces"] as? [[String: Any]],
+              let active = workspaces.first(where: { $0["active"] as? Bool == true }),
+              let windows = active["windows"] as? [[String: Any]] else { return }
+        let count = windows.filter { $0["floating"] as? Bool != true }.count
+        guard count > 0 else { return }
+        // Focus through this desktop only. The Lua handler applies each column's
+        // half/full preset against its usable viewport after padding changes.
+        for index in 1...min(count, 50) {
+            try run(["send-cmd", "window", "focus", String(index)])
+            Thread.sleep(forTimeInterval: 0.12)
+        }
+    }
+
+    static func apply(_ preferences: Preferences, previous: Preferences) throws -> Bool {
+        let wasRunning = isRunning()
+        do {
+            try PreferenceFiles.write(preferences)
+            if wasRunning && preferences.gap != previous.gap {
+                try stop()
+                try start()
+                try normalizeActiveWorkspace()
+            } else {
+                try PreferenceFiles.reload()
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+            if wasRunning {
+                // Keep the existing speed state in sync for older local helpers.
+                try run(["state", "set", "ribbondesk.scroll_speed", String(preferences.speed)])
+            }
+            return wasRunning
+        } catch {
+            try? PreferenceFiles.write(previous)
+            try? PreferenceFiles.reload()
+            if wasRunning && !isRunning() { try? start() }
+            throw error
+        }
+    }
+}
+
+@MainActor
+final class SettingsModel: ObservableObject {
+    @Published var speed: Double
+    @Published var gap: Double
+    @Published var focusMode: FocusMode
+    @Published var accessibilityGranted = ActivationClickGuard.isAuthorized
+    @Published var panelHeight: CGFloat = 740
+    @Published var applying = false
+    @Published var message = "Changes apply when you choose Save."
+    @Published var failed = false
+    private var saved: Preferences
+    private let clickGuard = ActivationClickGuard()
+    var willApply: (() -> Void)?
+    var didApply: (() -> Void)?
+
+    init() {
+        let preferences = PreferenceFiles.read()
+        saved = preferences
+        speed = preferences.speed
+        gap = Double(preferences.gap)
+        focusMode = preferences.focusMode
+        do { try clickGuard.configure(for: focusMode) }
+        catch { failed = true; message = error.localizedDescription }
+    }
+
+    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode).validated }
+    var changed: Bool { draft != saved }
+
+    func refresh() {
+        accessibilityGranted = ActivationClickGuard.isAuthorized
+        guard !applying else { return }
+        let current = PreferenceFiles.read()
+        // Retain an unsaved choice while the user grants Accessibility in Settings.
+        if current != saved {
+            saved = current
+            speed = saved.speed
+            gap = Double(saved.gap)
+            focusMode = saved.focusMode
+        }
+        do { try clickGuard.configure(for: current.focusMode) }
+        catch { failed = true; message = error.localizedDescription }
+    }
+
+    func reset() {
+        speed = Preferences.defaults.speed
+        gap = Double(Preferences.defaults.gap)
+        focusMode = Preferences.defaults.focusMode
+        message = "Defaults selected. Choose Save to apply."
+        failed = false
+    }
+
+    func save() {
+        guard changed && !applying else { return }
+        let next = draft, previous = saved
+        do {
+            // Do not save Click mode unless activation-only clicks can be enforced.
+            if next.focusMode == .click { try clickGuard.configure(for: .click) }
+        } catch {
+            accessibilityGranted = ActivationClickGuard.isAuthorized
+            failed = true
+            message = error.localizedDescription
+            return
+        }
+        applying = true
+        willApply?()
+        failed = false
+        message = next.gap == previous.gap ? "Saving…" : "Refreshing the window layout…"
+        Task {
+            do {
+                let running = try await Task.detached { try Engine.apply(next, previous: previous) }.value
+                if next.focusMode == .hover { try clickGuard.configure(for: .hover) }
+                saved = next
+                speed = next.speed
+                gap = Double(next.gap)
+                focusMode = next.focusMode
+                message = running ? "Saved. Your settings are active." : "Saved for the next time Paneru starts."
+            } catch {
+                try? clickGuard.configure(for: previous.focusMode)
+                failed = true
+                message = "Couldn’t apply settings. Previous settings restored."
+                NSLog("Paneru Settings: %@", error.localizedDescription)
+            }
+            applying = false
+            didApply?()
+        }
+    }
+
+    func allowClickMode() {
+        ActivationClickGuard.requestAuthorization()
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    }
+}
+
+struct Panes: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let scale = min(rect.width / 22, rect.height / 20)
+        let origin = CGPoint(x: rect.midX - 11 * scale, y: rect.midY - 10 * scale)
+        for (x, y) in [(2.0, 5.0), (12.0, 2.0)] {
+            let frame = CGRect(x: origin.x + x * scale, y: origin.y + y * scale, width: 8 * scale, height: 13 * scale)
+            path.addRoundedRect(in: frame, cornerSize: CGSize(width: 1.8 * scale, height: 1.8 * scale))
+            path.move(to: CGPoint(x: frame.minX, y: frame.minY + 3.4 * scale))
+            path.addLine(to: CGPoint(x: frame.maxX, y: frame.minY + 3.4 * scale))
+        }
+        return path
+    }
+}
+
+struct SettingsView: View {
+    static let size = NSSize(width: 380, height: 740)
+    @ObservedObject var model: SettingsModel
+    private let accent = Color(red: 0.20, green: 0.53, blue: 0.62)
+    private let shortcuts = [
+        ("Previous / next window", "H / L"),
+        ("Move window left / right", "J / K"),
+        ("Half / full width", "2 / 0"),
+        ("Toggle half / full", "R"),
+        ("Float window", "T"),
+        ("First / last window", "Home / End"),
+        ("Open settings", "S"),
+        ("Pause window management", "Q")
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 11) {
+                        Panes().stroke(.white, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                            .padding(7).frame(width: 40, height: 40)
+                            .background(accent.gradient, in: RoundedRectangle(cornerRadius: 11))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Paneru").font(.system(size: 22, weight: .semibold, design: .rounded))
+                            Text("Your windows, at your pace.").font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Activate windows", systemImage: "cursorarrow.click")
+                            .font(.system(size: 13, weight: .medium))
+                        Picker("Activate windows", selection: $model.focusMode) {
+                            Text("Mouse over").tag(FocusMode.hover)
+                            Text("Click").tag(FocusMode.click)
+                        }.pickerStyle(.segmented).labelsHidden()
+                        Text(model.focusMode == .hover
+                             ? "Moving the pointer over a window activates it."
+                             : "The first click only activates. Click again to interact.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                        if model.focusMode == .click && !model.accessibilityGranted {
+                            Button("Allow Click Mode…", action: model.allowClickMode)
+                            Text("Allow Accessibility for Paneru Settings, then choose Save.")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    }.padding(14).background(.background, in: RoundedRectangle(cornerRadius: 12))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("Scroll speed", systemImage: "hand.draw")
+                            Spacer()
+                            Text(String(format: "%.2f×", model.speed)).monospacedDigit().foregroundStyle(.secondary)
+                        }.font(.system(size: 13, weight: .medium))
+                        Slider(value: $model.speed, in: 0.2...1.5, step: 0.05)
+                            .accessibilityLabel("Scroll speed")
+                        HStack {
+                            Text("Slower")
+                            Spacer()
+                            Text("Faster")
+                        }.font(.system(size: 11)).foregroundStyle(.secondary)
+                    }.padding(14).background(.background, in: RoundedRectangle(cornerRadius: 12))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("Window gap", systemImage: "rectangle.split.2x1")
+                            Spacer()
+                            Text("\(Int(model.gap)) pt").monospacedDigit().foregroundStyle(.secondary)
+                        }.font(.system(size: 13, weight: .medium))
+                        Slider(value: $model.gap, in: 0...24, step: 2)
+                            .accessibilityLabel("Window gap")
+                        HStack(spacing: model.gap) {
+                            previewWindow
+                            previewWindow
+                        }.frame(height: 38).padding(.top, 2)
+                        Text("Gap changes briefly refresh the window layout.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }.padding(14).background(.background, in: RoundedRectangle(cornerRadius: 12))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Keyboard shortcuts", systemImage: "keyboard").font(.system(size: 12, weight: .medium))
+                        VStack(spacing: 9) {
+                            Text("Hold Control + Option, then press:")
+                                .font(.system(size: 11)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                            ForEach(shortcuts, id: \.0) { item in
+                                HStack {
+                                    Text(item.0).font(.system(size: 12))
+                                    Spacer()
+                                    Text(item.1).font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .padding(.horizontal, 7).padding(.vertical, 3)
+                                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                        }
+                    }
+                    Text("Three fingers scroll your windows. Two fingers scroll your apps.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }.padding(18)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 6) {
+                    if model.applying { ProgressView().controlSize(.small) }
+                    else { Image(systemName: model.failed ? "exclamationmark.circle" : "checkmark.circle") }
+                    Text(model.message)
+                }.font(.system(size: 11)).foregroundStyle(model.failed ? Color.red : Color.secondary)
+                HStack {
+                    Button("Reset Defaults", action: model.reset)
+                    Spacer()
+                    Button("Save", action: model.save).buttonStyle(.borderedProminent)
+                        .disabled(!model.changed || model.applying)
+                }
+            }.padding(.horizontal, 18).padding(.vertical, 14)
+        }.frame(width: Self.size.width, height: model.panelHeight)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .tint(accent)
+            .disabled(model.applying)
+    }
+
+    private var previewWindow: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 3) {
+                ForEach(0..<3) { _ in Circle().fill(accent.opacity(0.3)).frame(width: 3, height: 3) }
+                Spacer()
+            }.padding(7)
+            Divider().opacity(0.4)
+            Spacer()
+        }.frame(maxWidth: .infinity)
+            .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent.opacity(0.25), lineWidth: 1))
+    }
+}
+
+enum Icon {
+    static func drawPanes(in rect: NSRect, color: NSColor, lineWidth: CGFloat) {
+        color.setStroke()
+        let sx = rect.width / 22, sy = rect.height / 20
+        for (x, y) in [(2.0, 2.0), (12.0, 5.0)] {
+            let frame = NSRect(x: rect.minX + x * sx, y: rect.minY + y * sy, width: 8 * sx, height: 13 * sy)
+            let path = NSBezierPath(roundedRect: frame, xRadius: 1.8 * sx, yRadius: 1.8 * sy)
+            path.lineWidth = lineWidth
+            path.stroke()
+            let title = NSBezierPath()
+            title.move(to: NSPoint(x: frame.minX, y: frame.maxY - 3.4 * sy))
+            title.line(to: NSPoint(x: frame.maxX, y: frame.maxY - 3.4 * sy))
+            title.lineWidth = lineWidth
+            title.stroke()
+        }
+    }
+
+    static var menu: NSImage {
+        let image = NSImage(size: NSSize(width: 22, height: 20), flipped: false) { rect in
+            drawPanes(in: rect, color: .black, lineWidth: 1.35)
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Paneru"
+        return image
+    }
+
+    static func export(to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let iconset = directory.appendingPathComponent("Paneru.iconset")
+        try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
+        for size in [16, 32, 128, 256, 512] {
+            for scale in [1, 2] {
+                let pixels = size * scale
+                let image = NSImage(size: NSSize(width: pixels, height: pixels), flipped: false) { rect in
+                    NSColor(calibratedRed: 0.20, green: 0.53, blue: 0.62, alpha: 1).setFill()
+                    NSBezierPath(roundedRect: rect.insetBy(dx: rect.width * 0.04, dy: rect.height * 0.04),
+                                 xRadius: rect.width * 0.22, yRadius: rect.height * 0.22).fill()
+                    drawPanes(in: rect.insetBy(dx: rect.width * 0.19, dy: rect.height * 0.19), color: .white, lineWidth: rect.width * 0.043)
+                    return true
+                }
+                let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+                                               bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                               isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                image.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
+                NSGraphicsContext.restoreGraphicsState()
+                let name = "icon_\(size)x\(size)\(scale == 2 ? "@2x" : "").png"
+                try bitmap.representation(using: .png, properties: [:])!.write(to: iconset.appendingPathComponent(name))
+                if size == 256 && scale == 1 {
+                    try bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("Paneru-logo.png"))
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopoverDelegate {
+    private var item: NSStatusItem!
+    private let popover = NSPopover()
+    private let contextMenu = NSMenu()
+    private var toggleItem: NSMenuItem!
+    private let model = SettingsModel()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+        popover.contentViewController = NSHostingController(rootView: SettingsView(model: model)
+            .onExitCommand { [weak self] in self?.popover.performClose(nil) })
+        popover.contentSize = SettingsView.size
+        popover.behavior = .transient
+        popover.delegate = self
+        model.willApply = { [weak self] in
+            // A gap refresh briefly focuses managed windows. Keep the controls
+            // visible until that operation finishes, then restore normal dismissal.
+            guard let self, self.popover.isShown else { return }
+            self.popover.behavior = .applicationDefined
+        }
+        model.didApply = { [weak self] in
+            guard let self else { return }
+            self.popover.behavior = .transient
+            guard self.popover.isShown else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            self.popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+        }
+        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.image = Icon.menu
+        item.button?.toolTip = "Paneru — click for settings, right-click for window management"
+        item.button?.setAccessibilityLabel("Paneru")
+        item.button?.target = self
+        item.button?.action = #selector(statusItemClicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        contextMenu.delegate = self
+        contextMenu.autoenablesItems = false
+        contextMenu.addItem(menuItem("Settings…", action: #selector(openSettings)))
+        contextMenu.addItem(.separator())
+        toggleItem = menuItem("Pause Window Management", action: #selector(toggleEngine))
+        contextMenu.addItem(toggleItem)
+        contextMenu.addItem(menuItem("Restart Paneru", action: #selector(restartEngine)))
+        contextMenu.addItem(.separator())
+        contextMenu.addItem(menuItem("Quit Paneru", action: #selector(quitAll)))
+        if !CommandLine.arguments.contains("--background") { openSettings() }
+    }
+
+    private func menuItem(_ title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        // A read of launchd does not wake a paused engine.
+        toggleItem.title = Engine.isRunning() ? "Pause Window Management" : "Start Window Management"
+        for item in menu.items where !item.isSeparatorItem { item.isEnabled = !model.applying }
+    }
+
+    @objc private func statusItemClicked() {
+        guard let button = item.button else { return }
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            popover.performClose(nil)
+            contextMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
+        } else if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            openSettings()
+        }
+    }
+
+    @objc func openSettings() {
+        guard let button = item.button else { return }
+        if !popover.isShown { model.refresh() }
+        model.panelHeight = min(SettingsView.size.height, max(420, (button.window?.screen?.visibleFrame.height ?? 780) - 24))
+        popover.contentSize = NSSize(width: SettingsView.size.width, height: model.panelHeight)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+        button.highlight(true)
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        item.button?.highlight(false)
+    }
+
+    func popoverShouldDetach(_ popover: NSPopover) -> Bool { false }
+
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        !model.applying
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        openSettings()
+        return false
+    }
+
+    @objc private func toggleEngine() {
+        Task {
+            do { try await Task.detached { if Engine.isRunning() { try Engine.stop() } else { try Engine.start() } }.value }
+            catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
+        }
+    }
+
+    @objc private func restartEngine() {
+        Task {
+            do { try await Task.detached { try Engine.stop(); try Engine.start() }.value }
+            catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
+        }
+    }
+
+    @objc private func quitAll() {
+        Task {
+            do { try await Task.detached { try Engine.stop() }.value; NSApp.terminate(nil) }
+            catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
+        }
+    }
+}
+
+if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--render-assets" {
+    try Icon.export(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+} else {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        withExtendedLifetime(delegate) { app.run() }
+    }
+}

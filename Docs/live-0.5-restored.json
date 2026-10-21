@@ -1,0 +1,104 @@
+{
+  "pending": 0,
+  "managedWindowsRestored": 8,
+  "windows": [
+    {
+      "app": "Notion",
+      "number": 10062,
+      "survives": true,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "maxFrameError": 0
+    },
+    {
+      "app": "ChatGPT",
+      "number": 15501,
+      "survives": true,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ],
+      "maxFrameError": 0
+    },
+    {
+      "app": "Firefox",
+      "number": 19983,
+      "survives": true,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "maxFrameError": 0
+    },
+    {
+      "app": "Firefox",
+      "number": 19986,
+      "survives": true,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "maxFrameError": 0
+    },
+    {
+      "app": "ForkLift",
+      "number": 1122,
+      "survives": true,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ],
+      "maxFrameError": 0
+    },
+    {
+      "app": "RibbonDesk",
+      "number": 23752,
+      "survives": true,
+      "originalSpaces": [
+        1
+      ],
+      "currentSpaces": [
+        1
+      ],
+      "maxFrameError": 0
+    },
+    {
+      "app": "Terminal",
+      "number": 18777,
+      "survives": true,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ],
+      "maxFrameError": 0
+    },
+    {
+      "app": "Finder",
+      "number": 16438,
+      "survives": true,
+      "originalSpaces": [
+        3
+      ],
+      "currentSpaces": [
+        3
+      ],
+      "maxFrameError": 0
+    }
+  ],
+  "maxFrameError": 0,
+  "note": "Compared after closing Mission Control; its overview temporarily transforms CG window bounds. Unsupported temporary host windows were never enrolled."
+}

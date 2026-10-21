@@ -1,0 +1,236 @@
+{
+  "target": 3,
+  "executableSHA256": "e737675eecda7d2744e514ad103141d99b21536972d5d31005f93631006dc509",
+  "windows": [
+    {
+      "app": "Notion",
+      "number": 10062,
+      "originalSpaces": [
+        1
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 875,
+        "width": 1374,
+        "x": 0,
+        "y": 25
+      },
+      "gatheredFrame": {
+        "Height": 875,
+        "Width": 1374,
+        "X": 0,
+        "Y": 25
+      }
+    },
+    {
+      "app": "ChatGPT",
+      "number": 15501,
+      "originalSpaces": [
+        3
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 875,
+        "width": 1373,
+        "x": 0,
+        "y": 25
+      },
+      "gatheredFrame": {
+        "Height": 875,
+        "Width": 1373,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "Firefox",
+      "number": 19983,
+      "originalSpaces": [
+        1
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 875,
+        "width": 1373,
+        "x": 0,
+        "y": 25
+      },
+      "gatheredFrame": {
+        "Height": 875,
+        "Width": 1373,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "Firefox",
+      "number": 19986,
+      "originalSpaces": [
+        1
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 875,
+        "width": 1374,
+        "x": 0,
+        "y": 25
+      },
+      "gatheredFrame": {
+        "Height": 875,
+        "Width": 1374,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "ForkLift",
+      "number": 1122,
+      "originalSpaces": [
+        3
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 763,
+        "width": 1344,
+        "x": 16,
+        "y": 41
+      },
+      "gatheredFrame": {
+        "Height": 763,
+        "Width": 1344,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "RibbonDesk Test Windows",
+      "number": 21910,
+      "originalSpaces": [
+        3
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 528,
+        "width": 894,
+        "x": 24,
+        "y": 242
+      },
+      "gatheredFrame": {
+        "Height": 528,
+        "Width": 894,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "RibbonDesk",
+      "number": 23430,
+      "originalSpaces": [
+        3
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 788,
+        "width": 1080,
+        "x": 147,
+        "y": 47
+      },
+      "gatheredFrame": {
+        "Height": 788,
+        "Width": 1080,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "Terminal",
+      "number": 18777,
+      "originalSpaces": [
+        3
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 466,
+        "width": 745,
+        "x": 325,
+        "y": 193
+      },
+      "gatheredFrame": {
+        "Height": 466,
+        "Width": 745,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "RibbonDesk Test Windows",
+      "number": 21911,
+      "originalSpaces": [
+        3
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 528,
+        "width": 894,
+        "x": 458,
+        "y": 212
+      },
+      "gatheredFrame": {
+        "Height": 528,
+        "Width": 894,
+        "X": 1302,
+        "Y": 25
+      }
+    },
+    {
+      "app": "Finder",
+      "number": 16438,
+      "originalSpaces": [
+        3
+      ],
+      "gatheredSpaces": [
+        3
+      ],
+      "onscreen": true,
+      "originalFrame": {
+        "height": 763,
+        "width": 920,
+        "x": 1288,
+        "y": 41
+      },
+      "gatheredFrame": {
+        "Height": 763,
+        "Width": 920,
+        "X": 1302,
+        "Y": 25
+      }
+    }
+  ]
+}

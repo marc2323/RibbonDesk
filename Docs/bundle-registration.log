@@ -1,0 +1,15 @@
+path:                       /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/.build/RibbonDeskTestWindows.app (0xf284)
+name:                       RibbonDesk Test Windows
+identifier:                 local.prototype.RibbonDesk.test-windows
+
+path:                       /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/RibbonDesk.app (0xf310)
+name:                       RibbonDesk
+identifier:                 local.prototype.RibbonDesk
+displayVersion:             0.3.0
+
+path:                       /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/trackpad-preview/RibbonDeskPreview.app (0xf314)
+name:                       RibbonDesk Preview
+identifier:                 local.prototype.RibbonDesk.preview
+displayVersion:             0.3.0
+
+PASS: one canonical identity; distinct preview identity.
