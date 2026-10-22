@@ -11,13 +11,15 @@ struct Preferences: Codable, Equatable, Sendable {
     var gap: Int
     var focusMode: FocusMode = .hover
     var launchAtLogin: Bool = false
+    var disabledSpaceUUIDs: [String] = []
     static let defaults = Preferences(speed: 0.65, gap: 6)
 
-    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false) {
+    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = []) {
         self.speed = speed
         self.gap = gap
         self.focusMode = focusMode
         self.launchAtLogin = launchAtLogin
+        self.disabledSpaceUUIDs = disabledSpaceUUIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -27,12 +29,14 @@ struct Preferences: Codable, Equatable, Sendable {
         // Existing installations have only speed and gap. Preserve both values.
         focusMode = try values.decodeIfPresent(FocusMode.self, forKey: .focusMode) ?? .hover
         launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        disabledSpaceUUIDs = try values.decodeIfPresent([String].self, forKey: .disabledSpaceUUIDs) ?? []
     }
 
     var validated: Preferences {
         Preferences(speed: speed.isFinite ? min(1.5, max(0.2, speed)) : 0.65,
                     gap: Int((Double(min(24, max(0, gap))) / 2).rounded()) * 2,
-                    focusMode: focusMode, launchAtLogin: launchAtLogin)
+                    focusMode: focusMode, launchAtLogin: launchAtLogin,
+                    disabledSpaceUUIDs: Array(Set(disabledSpaceUUIDs.filter { !$0.isEmpty })).sorted())
     }
 }
 
@@ -55,7 +59,9 @@ enum PreferenceFiles {
         try encoder.encode(value).write(to: json, options: .atomic)
         let speed = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.speed)
         let hover = value.focusMode == .hover ? "true" : "false"
-        let source = "-- Written by Paneru Settings.\nreturn { speed = \(speed), gap = \(value.gap), focus_follows_mouse = \(hover) }\n"
+        let excludedIDs = DesktopSpaces.read().spaces.filter { value.disabledSpaceUUIDs.contains($0.uuid) }
+            .map { String($0.id) }.joined(separator: ", ")
+        let source = "-- Written by Paneru Settings.\nreturn { speed = \(speed), gap = \(value.gap), focus_follows_mouse = \(hover), disabled_spaces = { \(excludedIDs) } }\n"
         try Data(source.utf8).write(to: lua, options: .atomic)
         for file in [json, lua] {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
@@ -104,6 +110,10 @@ enum Engine {
     }
 
     static func start() throws {
+        let preferences = PreferenceFiles.read()
+        guard !DesktopSpaces.read().isSuspended(disabled: preferences.disabledSpaceUUIDs) else { return }
+        // Re-resolve stable Space UUIDs to this login's numeric engine IDs.
+        try PreferenceFiles.write(preferences)
         if isRunning() {
             _ = try? run(["state", "set", "paneru.calibrating_layout", "false"])
             return
@@ -174,7 +184,10 @@ enum Engine {
         let wasRunning = isRunning()
         do {
             try PreferenceFiles.write(preferences)
-            if wasRunning && preferences.gap != previous.gap {
+            if wasRunning && preferences.disabledSpaceUUIDs != previous.disabledSpaceUUIDs {
+                try stop()
+                try start()
+            } else if wasRunning && preferences.gap != previous.gap {
                 try stop()
                 try start()
                 try normalizeActiveWorkspace()
@@ -198,6 +211,9 @@ final class SettingsModel: ObservableObject {
     @Published var gap: Double
     @Published var focusMode: FocusMode
     @Published var launchAtLogin: Bool
+    @Published var disabledSpaceUUIDs: [String]
+    @Published var desktop: DesktopSpace?
+    @Published var desktopSuspended = false
     @Published var loginApprovalRequired = LoginItem.requiresApproval
     @Published var accessibilityGranted = ActivationClickGuard.isAuthorized
     @Published var applying = false
@@ -207,6 +223,7 @@ final class SettingsModel: ObservableObject {
     private let clickGuard = ActivationClickGuard()
     var willApply: (() -> Void)?
     var didApply: (() -> Void)?
+    private var protectionSuspended = false
 
     init() {
         var preferences = PreferenceFiles.read()
@@ -216,15 +233,42 @@ final class SettingsModel: ObservableObject {
         gap = Double(preferences.gap)
         focusMode = preferences.focusMode
         launchAtLogin = preferences.launchAtLogin
-        do { try clickGuard.configure(for: focusMode) }
+        disabledSpaceUUIDs = preferences.disabledSpaceUUIDs
+        desktop = DesktopSpaces.read().current
+        clickGuard.shouldHandlePoint = { [weak self] point in
+            let disabled = self?.saved.disabledSpaceUUIDs ?? []
+            return disabled.isEmpty || !DesktopSpaces.read().isDisabled(at: point, disabled: disabled)
+        }
+        protectionSuspended = DesktopSpaces.read().isSuspended(disabled: preferences.disabledSpaceUUIDs)
+        desktopSuspended = protectionSuspended
+        do { try clickGuard.configure(for: protectionSuspended ? .hover : focusMode) }
         catch { failed = true; message = error.localizedDescription }
     }
 
-    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode, launchAtLogin: launchAtLogin).validated }
+    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode, launchAtLogin: launchAtLogin, disabledSpaceUUIDs: disabledSpaceUUIDs).validated }
     var changed: Bool { draft != saved }
+
+    var currentDesktopEnabled: Bool {
+        get { desktop.map { !disabledSpaceUUIDs.contains($0.uuid) } ?? true }
+        set {
+            guard let desktop else { return }
+            disabledSpaceUUIDs.removeAll { $0 == desktop.uuid }
+            if !newValue { disabledSpaceUUIDs.append(desktop.uuid) }
+        }
+    }
+
+    func refreshDesktop() { desktop = DesktopSpaces.read().current }
+
+    func setDesktopSuspended(_ suspended: Bool) {
+        protectionSuspended = suspended
+        desktopSuspended = suspended
+        do { try clickGuard.configure(for: suspended ? .hover : saved.focusMode) }
+        catch { failed = true; message = error.localizedDescription }
+    }
 
     func refresh() {
         accessibilityGranted = ActivationClickGuard.isAuthorized
+        refreshDesktop()
         guard !applying else { return }
         var current = PreferenceFiles.read()
         current.launchAtLogin = LoginItem.enabled
@@ -236,8 +280,9 @@ final class SettingsModel: ObservableObject {
             gap = Double(saved.gap)
             focusMode = saved.focusMode
             launchAtLogin = saved.launchAtLogin
+            disabledSpaceUUIDs = saved.disabledSpaceUUIDs
         }
-        do { try clickGuard.configure(for: current.focusMode) }
+        do { try clickGuard.configure(for: protectionSuspended ? .hover : current.focusMode) }
         catch { failed = true; message = error.localizedDescription }
     }
 
@@ -246,6 +291,7 @@ final class SettingsModel: ObservableObject {
         gap = Double(Preferences.defaults.gap)
         focusMode = Preferences.defaults.focusMode
         launchAtLogin = Preferences.defaults.launchAtLogin
+        disabledSpaceUUIDs = Preferences.defaults.disabledSpaceUUIDs
         message = "Defaults selected. Choose Save to apply."
         failed = false
     }
@@ -255,7 +301,7 @@ final class SettingsModel: ObservableObject {
         let next = draft, previous = saved
         do {
             // Do not save Click mode unless activation-only clicks can be enforced.
-            if next.focusMode == .click { try clickGuard.configure(for: .click) }
+            if next.focusMode == .click && !protectionSuspended { try clickGuard.configure(for: .click) }
         } catch {
             accessibilityGranted = ActivationClickGuard.isAuthorized
             failed = true
@@ -276,12 +322,18 @@ final class SettingsModel: ObservableObject {
                 gap = Double(next.gap)
                 focusMode = next.focusMode
                 launchAtLogin = next.launchAtLogin
+                disabledSpaceUUIDs = next.disabledSpaceUUIDs
                 loginApprovalRequired = LoginItem.requiresApproval
                 message = running ? "Saved. Your settings are active." : "Saved for the next time Paneru starts."
+                if DesktopSpaces.read().isSuspended(disabled: next.disabledSpaceUUIDs) {
+                    message = "Saved. Paneru is disabled on this Desktop."
+                } else if previous.disabledSpaceUUIDs != next.disabledSpaceUUIDs {
+                    message = "Saved. This Desktop is enabled."
+                }
                 if loginApprovalRequired { message = "Saved. Approve Paneru Settings in Login Items to launch at login." }
             } catch {
                 try? LoginItem.setEnabled(previous.launchAtLogin)
-                try? clickGuard.configure(for: previous.focusMode)
+                try? clickGuard.configure(for: protectionSuspended ? .hover : previous.focusMode)
                 failed = true
                 message = "Couldn’t apply settings. Previous settings restored."
                 NSLog("Paneru Settings: %@", error.localizedDescription)
@@ -358,6 +410,16 @@ struct SettingsView: View {
                     }
                 }.padding(10).background(.background, in: RoundedRectangle(cornerRadius: 9))
 
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle("Enable on this Desktop", isOn: $model.currentDesktopEnabled)
+                        .toggleStyle(.switch).controlSize(.mini)
+                        .font(.system(size: 12, weight: .medium))
+                        .disabled(model.desktop == nil)
+                    Text(model.desktop.map { "\($0.name) · Off disables tiling, gestures, activation, and hotkeys." }
+                         ?? "Switch to a desktop Space to change this option.")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+
                 Toggle(isOn: $model.launchAtLogin) {
                     HStack(spacing: 6) {
                         Text("Launch at login").font(.system(size: 12, weight: .medium))
@@ -408,7 +470,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Text("Scroll position stays put until you click a window.")
+                Text("Click to work in place. ⌘-click a window to snap it into view.")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }.padding(12)
             Divider()
@@ -493,6 +555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let contextMenu = NSMenu()
     private var toggleItem: NSMenuItem!
     private let model = SettingsModel()
+    private lazy var desktops = DesktopSpaceController(model: model)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -511,6 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         model.didApply = { [weak self] in
             guard let self else { return }
+            self.desktops.policyChanged()
             self.popover.behavior = .transient
             guard self.popover.isShown else { return }
             NSApp.activate(ignoringOtherApps: true)
@@ -533,10 +597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         contextMenu.addItem(.separator())
         contextMenu.addItem(menuItem("Quit Paneru", action: #selector(quitAll)))
         if !CommandLine.arguments.contains("--background") && !LoginItem.launchedAtLogin { openSettings() }
-        Task {
-            do { try await Task.detached { try Engine.start() }.value }
-            catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
-        }
+        desktops.start()
     }
 
     private func menuItem(_ title: String, action: Selector) -> NSMenuItem {
@@ -547,8 +608,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         // A read of launchd does not wake a paused engine.
-        toggleItem.title = Engine.isRunning() ? "Pause Window Management" : "Start Window Management"
+        let disabled = DesktopSpaces.read().isSuspended(disabled: PreferenceFiles.read().disabledSpaceUUIDs)
+        toggleItem.title = disabled ? "Disabled on this Desktop" : (Engine.isRunning() ? "Pause Window Management" : "Start Window Management")
         for item in menu.items where !item.isSeparatorItem { item.isEnabled = !model.applying }
+        toggleItem.isEnabled = !model.applying && !disabled
     }
 
     @objc private func statusItemClicked() {
@@ -592,15 +655,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     @objc private func toggleEngine() {
-        Task {
-            do { try await Task.detached { if Engine.isRunning() { try Engine.stop() } else { try Engine.start() } }.value }
-            catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
-        }
+        desktops.setRequested(!Engine.isRunning())
     }
 
     @objc private func restartEngine() {
         Task {
-            do { try await Task.detached { try Engine.stop(); try Engine.start() }.value }
+            do {
+                try await Task.detached { try Engine.stop() }.value
+                desktops.setRequested(true)
+            }
             catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
         }
     }
@@ -615,6 +678,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
 if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--render-assets" {
     try Icon.export(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+} else if CommandLine.arguments.contains("--desktop-state") {
+    let data = try JSONEncoder().encode(DesktopSpaces.read())
+    print(String(decoding: data, as: UTF8.self))
 } else {
     MainActor.assumeIsolated {
         let app = NSApplication.shared

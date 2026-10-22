@@ -5,6 +5,7 @@ import os
 /// In Click mode, an inactive application window must be activated before it
 /// receives a click or ordinary scrolling. Paneru continues to own strip gestures.
 final class ActivationClickGuard {
+    var shouldHandlePoint: (CGPoint) -> Bool = { _ in true }
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var swallowedButtons = Set<Int64>()
@@ -71,6 +72,7 @@ final class ActivationClickGuard {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             if swallowedButtons.contains(button) { return nil }
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            guard shouldHandlePoint(event.location) else { return Unmanaged.passUnretained(event) }
             let target = inactiveWindow(at: event.location)
             if diagnostics { logger.notice("Mouse down received; activation required: \(target != nil, privacy: .public)") }
             if let target {
@@ -81,6 +83,7 @@ final class ActivationClickGuard {
                 return nil
             }
         case .scrollWheel:
+            guard shouldHandlePoint(event.location) else { return Unmanaged.passUnretained(event) }
             // Inactive windows cannot receive accidental two-finger scrolling.
             // Three-finger strip gestures are intercepted upstream by Paneru.
             if inactiveWindow(at: event.location) != nil { return nil }

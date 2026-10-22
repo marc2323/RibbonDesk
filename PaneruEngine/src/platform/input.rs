@@ -144,6 +144,11 @@ pub(super) type PinnedInputHandler =
     ScopeGuard<Pin<Box<InputHandler>>, Box<dyn FnOnce(Pin<Box<InputHandler>>)>>;
 
 impl InputHandler {
+    #[cfg(feature = "lua")]
+    pub(super) fn config(&self) -> Config {
+        self.config.clone()
+    }
+
     /// Creates a new `InputHandler` instance.
     ///
     /// # Arguments
@@ -348,12 +353,21 @@ impl InputHandler {
             return false;
         }
 
+        if crate::manager::disabled_space_is_visible(&self.config.disabled_spaces()) {
+            // Pass every event to macOS, including configured hotkeys and
+            // strip gestures, even during the engine's shutdown interval.
+            self.finger_position = None;
+            self.last_swipe_time = None;
+            self.last_window_scroll = None;
+            return false;
+        }
+
         let Some(events) = &self.events else {
             return false;
         };
 
         let flags = CGEvent::flags(Some(event));
-        let modifiers = get_modifiers(flags);
+        let modifiers = get_event_modifiers(flags);
 
         let result = match event_type {
             CGEventType::LeftMouseDown | CGEventType::RightMouseDown => {
@@ -410,7 +424,7 @@ impl InputHandler {
         }
 
         let flags = CGEvent::flags(Some(event));
-        let modifiers = get_scroll_modifiers(flags);
+        let modifiers = get_event_modifiers(flags);
 
         let target_modifier = self.config.swipe_scroll_modifier();
         let vertical_mod = self.config.swipe_scroll_vertical_modifier();
@@ -591,7 +605,7 @@ impl InputHandler {
             return false;
         };
 
-        let mask = get_modifiers(eventflags);
+        let mask = get_event_modifiers(eventflags);
 
         // On a native fullscreen space, keybindings are still intercepted so
         // that paneru can actively switch back to the previous workspace.
@@ -633,9 +647,9 @@ fn gesture_should_intercept(configured_fingers: Option<usize>, actual_fingers: u
     })
 }
 
-// Remote mouse tools can send group flags without left or right flags.
+// Remote and accessibility input can send group flags without side flags.
 // Use the group only when the event does not specify a side.
-fn get_scroll_modifiers(eventflags: CGEventFlags) -> Modifiers {
+fn get_event_modifiers(eventflags: CGEventFlags) -> Modifiers {
     const GROUP_FLAGS: [(Modifiers, u64); 4] = [
         (Modifiers::ALT, CGEventFlags::MaskAlternate.0),
         (Modifiers::SHIFT, CGEventFlags::MaskShift.0),
@@ -716,6 +730,19 @@ fn accept_window_scroll(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_config_observes_shared_desktop_exclusions() {
+        let (sender, _receiver) = EventSender::new();
+        let handler = InputHandler::new(sender, Config::default());
+        let shared = handler.config();
+        shared.replace_inner_from(
+            &Config::try_from("[options]\ndisabled_spaces = [2, 20]\n").expect("valid config"),
+        );
+        assert_eq!(handler.config.disabled_spaces(), vec![2, 20]);
+        shared.replace_inner_from(&Config::default());
+        assert!(handler.config.disabled_spaces().is_empty());
+    }
 
     fn step_config(extra: &str) -> Config {
         Config::try_from(format!(
@@ -934,7 +961,7 @@ mod tests {
     #[test]
     fn shared_mouse_alt_scroll_matches_generic_binding() {
         // Deskflow uses the group flag for scroll events from Windows Alt.
-        let modifiers = get_scroll_modifiers(CGEventFlags(0x2008_0000));
+        let modifiers = get_event_modifiers(CGEventFlags(0x2008_0000));
         assert!(Modifiers::ALT.matches(modifiers));
         // The event does not identify a side. Do not select one.
         assert!(!Modifiers::LALT.matches(modifiers));
@@ -942,15 +969,25 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_and_command_click_accept_group_only_modifier_events() {
+        let flags = CGEventFlags(CGEventFlags::MaskControl.0 | CGEventFlags::MaskAlternate.0);
+        let modifiers = get_event_modifiers(flags);
+        assert!((Modifiers::CTRL | Modifiers::ALT).matches(modifiers));
+        assert!(!(Modifiers::LCTRL | Modifiers::LALT).matches(modifiers));
+        assert!(!Modifiers::ALT.matches(modifiers));
+        assert!(get_event_modifiers(CGEventFlags::MaskCommand).intersects(Modifiers::CMD));
+    }
+
+    #[test]
     fn shared_mouse_extra_modifier_does_not_trigger_alt_scroll() {
-        let modifiers = get_scroll_modifiers(CGEventFlags(0x200c_0000));
+        let modifiers = get_event_modifiers(CGEventFlags(0x200c_0000));
         assert!(!Modifiers::ALT.matches(modifiers));
         assert!((Modifiers::ALT | Modifiers::CTRL).matches(modifiers));
     }
 
     #[test]
     fn physical_scroll_keeps_the_reported_modifier_side() {
-        let modifiers = get_scroll_modifiers(CGEventFlags(0x0008_0000 | NX_DEVICERALTKEYMASK));
+        let modifiers = get_event_modifiers(CGEventFlags(0x0008_0000 | NX_DEVICERALTKEYMASK));
         assert!(Modifiers::ALT.matches(modifiers));
         assert!(Modifiers::RALT.matches(modifiers));
         assert!(!Modifiers::LALT.matches(modifiers));
@@ -958,7 +995,7 @@ mod tests {
 
     #[test]
     fn ordinary_scroll_does_not_trigger_alt_scroll() {
-        assert!(!Modifiers::ALT.matches(get_scroll_modifiers(CGEventFlags(0x2000_0000))));
+        assert!(!Modifiers::ALT.matches(get_event_modifiers(CGEventFlags(0x2000_0000))));
     }
 
     #[test]
@@ -968,7 +1005,7 @@ mod tests {
             (Modifiers::CTRL, 0x0004_0000),
             (Modifiers::CMD, 0x0010_0000),
         ] {
-            assert!(group.matches(get_scroll_modifiers(CGEventFlags(flag))));
+            assert!(group.matches(get_event_modifiers(CGEventFlags(flag))));
         }
     }
 

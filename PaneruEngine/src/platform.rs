@@ -256,6 +256,16 @@ pub struct PlatformCallbacks {
 }
 
 impl PlatformCallbacks {
+    #[cfg(feature = "lua")]
+    pub(crate) fn share_input_config(&self, config: Config) -> Config {
+        let shared = self
+            .event_handler
+            .as_ref()
+            .map_or_else(|| config.clone(), |handler| handler.config());
+        shared.replace_inner_from(&config);
+        shared
+    }
+
     /// Creates a new `PlatformCallbacks` instance, initializing various handlers and watchers.
     /// This involves setting up `Config`, `WorkspaceObserver`, `ProcessHandler`, `InputHandler`,
     /// `MissionControlHandler`, `DisplayHandler`, and `FsEventWatcher`.

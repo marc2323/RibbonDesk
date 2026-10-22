@@ -231,6 +231,7 @@ pub fn register_triggers(app: &mut bevy::app::App) {
         .add_observer(triggers::send_message_trigger)
         .add_observer(triggers::window_removal_trigger)
         .add_observer(triggers::cleanup_timeout_trigger)
+        .add_observer(triggers::cleanup_quick_reveal)
         .add_observer(restore::restore_window_state);
 }
 
@@ -317,11 +318,17 @@ pub struct Scrolling {
     pub last_event: Duration,
 }
 
-/// A scroll gesture owns this workspace's viewport until a window mouse-down.
+/// A scroll gesture owns this workspace's viewport until explicit keyboard
+/// navigation or a Command-click on a managed window takes over.
 /// Focus notifications and hover may update focus, but cannot reveal or center
 /// a window by changing the user's chosen strip offset.
 #[derive(Component, Debug)]
 pub struct ScrollPositionHold;
+
+/// Requests a short animated reveal, independent of general animation speed.
+/// Travels from the clicked window to its strip when a reveal is needed.
+#[derive(Component)]
+pub struct QuickReveal;
 
 #[derive(Component, Clone, Debug, Default, Deref, DerefMut)]
 pub struct LayoutPosition(pub Origin);
@@ -537,6 +544,8 @@ pub trait SpawnCommandsExt {
 
     fn ensure_visible(&mut self, entity: Entity);
 
+    fn ensure_visible_quickly(&mut self, entity: Entity);
+
     /// Like [`SpawnCommandsExt::ensure_visible`], but `snap` controls whether
     /// `ensure_visible_in_strip`'s correction is animated or assigned
     /// directly. Only `show_active_workspace` needs this — everyone else
@@ -585,6 +594,12 @@ impl SpawnCommandsExt for Commands<'_, '_> {
     #[instrument(level = Level::TRACE, skip(self))]
     fn ensure_visible(&mut self, entity: Entity) {
         self.ensure_visible_snap(entity, false);
+    }
+
+    fn ensure_visible_quickly(&mut self, entity: Entity) {
+        if let Ok(mut entity_commands) = self.get_entity(entity) {
+            entity_commands.try_insert((EnsureVisibleMarker { snap: false }, QuickReveal));
+        }
     }
 
     #[instrument(level = Level::TRACE, skip(self))]
@@ -831,7 +846,13 @@ pub fn setup_bevy_app(sender: EventSender, receiver: Receiver<Event>) -> Result<
         // schedule and wins over the TOML `InitialConfig` (see
         // `gather_initial_processes`). Without `setup`, the TOML config is used.
         if let Some(config) = worker.built_config() {
-            app.insert_resource(config);
+            // Keep the event tap and ECS on the same shared configuration,
+            // including desktop exclusions and subsequent Lua reloads.
+            let shared = app
+                .world()
+                .non_send::<std::pin::Pin<Box<PlatformCallbacks>>>()
+                .share_input_config(config);
+            app.insert_resource(shared);
         }
         app.insert_resource(worker);
         app.insert_resource(lua::LuaScriptPath(path));

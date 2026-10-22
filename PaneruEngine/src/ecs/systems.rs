@@ -29,8 +29,9 @@ use crate::ecs::layout::{Column, LayoutStrip};
 use crate::ecs::params::{ActiveDisplay, FrameActivity, Windows};
 use crate::ecs::{
     ActiveWorkspaceMarker, Bounds, BruteforceWindows, FlashMessage, FocusedMarker, Initializing,
-    LowPowerMode, MissionControlActive, Position, ReadDisplayProperties, RestoreWindowState,
-    Scrolling, SendMessageTrigger, SpawnCommandsExt, Unmanaged, WidthRatio, WindowProperties,
+    LowPowerMode, MissionControlActive, Position, QuickReveal, ReadDisplayProperties,
+    RestoreWindowState, Scrolling, SendMessageTrigger, SpawnCommandsExt, Unmanaged, WidthRatio,
+    WindowProperties,
 };
 use crate::events::{Event, InputEvent};
 use crate::manager::{
@@ -587,7 +588,7 @@ fn ease_out_factor(rate: f64, delta: f64) -> f32 {
 /// * `commands` - Bevy commands to remove the `RepositionMarker` when animation is complete.
 #[instrument(level = Level::TRACE, skip_all)]
 pub(super) fn animate_entities(
-    animate: Populated<(&mut Position, Entity, &RepositionMarker)>,
+    animate: Populated<(&mut Position, Entity, &RepositionMarker, Has<QuickReveal>)>,
     time: Res<Time>,
     config: Res<Config>,
     mut commands: Commands,
@@ -595,10 +596,14 @@ pub(super) fn animate_entities(
     // Frame-rate-independent exponential smoothing (ease-out).
     // `animation_speed` is the decay rate (per second); higher = snappier.
     let t = ease_out_factor(config.animation_speed(), time.delta_secs_f64());
+    // Roughly 150ms for a desktop-width reveal. Cap a stalled frame's step so
+    // even a busy app does not turn the first animation frame into a hard jump.
+    let quick_t = ease_out_factor(45.0, time.delta_secs_f64().min(1.0 / 30.0));
 
     animate
         .into_iter()
-        .for_each(|(mut position, entity, RepositionMarker(origin))| {
+        .for_each(|(mut position, entity, RepositionMarker(origin), quick)| {
+            let t = if quick { quick_t } else { t };
             let target = origin.as_vec2();
             let current = position.0.as_vec2();
             let lerped = current.lerp(target, t);

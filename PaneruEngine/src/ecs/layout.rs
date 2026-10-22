@@ -17,8 +17,8 @@ use crate::ecs::params::Windows;
 use crate::ecs::workspace::SnapStripMarker;
 use crate::ecs::{
     ActiveWorkspaceMarker, Bounds, DockPosition, EnsureVisibleMarker, Initializing, LayoutPosition,
-    ManualStripOffset, Position, RepositionMarker, ReshuffleAroundMarker, ScrollPositionHold,
-    Scrolling, SpawnCommandsExt,
+    ManualStripOffset, Position, QuickReveal, RepositionMarker, ReshuffleAroundMarker,
+    ScrollPositionHold, Scrolling, SpawnCommandsExt,
 };
 use crate::errors::{Error, Result};
 use crate::manager::{Display, Origin, Size, Window};
@@ -1329,7 +1329,12 @@ fn reshuffle_layout_strip(
 #[allow(clippy::type_complexity)]
 #[instrument(level = Level::DEBUG, skip_all)]
 fn ensure_visible_in_strip(
-    markers: Query<(Entity, &LayoutPosition, &EnsureVisibleMarker)>,
+    markers: Query<(
+        Entity,
+        &LayoutPosition,
+        &EnsureVisibleMarker,
+        Has<QuickReveal>,
+    )>,
     mut strip_params: ParamSet<(
         StripPlacements,
         Query<&mut Position, (With<LayoutStrip>, Without<Window>)>,
@@ -1340,9 +1345,9 @@ fn ensure_visible_in_strip(
     config: Res<Config>,
     mut commands: Commands,
 ) {
-    for (entity, layout_position, marker) in markers {
+    for (entity, layout_position, marker, quick) in markers {
         if let Ok(mut cmd) = commands.get_entity(entity) {
-            cmd.try_remove::<EnsureVisibleMarker>();
+            cmd.try_remove::<(EnsureVisibleMarker, QuickReveal)>();
         }
         // Each marker is independent, and its own marker was already consumed
         // above: bailing out of the loop would silently drop the rest.
@@ -1418,6 +1423,9 @@ fn ensure_visible_in_strip(
             }
         } else {
             commands.reposition_entity(strip_entity, scroll_to);
+            if quick && let Ok(mut cmd) = commands.get_entity(strip_entity) {
+                cmd.try_insert(QuickReveal);
+            }
         }
     }
 }

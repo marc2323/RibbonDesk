@@ -261,8 +261,19 @@ fn nearest_float_in_direction(
 fn focus_with_verification(
     entity: Entity,
     focused_entity: Option<Entity>,
+    workspaces: &Query<(&LayoutStrip, Entity, Option<&NativeFullscreenMarker>)>,
     commands: &mut Commands,
 ) {
+    // Explicit keyboard navigation takes ownership from a manual scroll, even
+    // when the target already has focus or the automatic hidden ratio is lazy.
+    for (strip, strip_entity, _) in workspaces {
+        if strip.contains(entity)
+            && let Ok(mut cmd) = commands.get_entity(strip_entity)
+        {
+            cmd.try_remove::<(crate::ecs::ScrollPositionHold, crate::ecs::Scrolling)>();
+        }
+    }
+    commands.ensure_visible(entity);
     if focused_entity != Some(entity)
         && let Ok(mut entity_commands) = commands.get_entity(entity)
     {
@@ -311,7 +322,12 @@ fn command_move_focus(
 
         if let Some(entity) = strip.and_then(|strip| strip.last().ok().and_then(|col| col.top())) {
             debug!("fullscreen: swap raising {entity}");
-            focus_with_verification(entity, windows.focused().map(|(_, e)| e), &mut commands);
+            focus_with_verification(
+                entity,
+                windows.focused().map(|(_, e)| e),
+                &workspaces,
+                &mut commands,
+            );
         }
         return;
     }
@@ -331,7 +347,7 @@ fn command_move_focus(
             active_strip.id(),
             active_display.bounds(),
         ) {
-            focus_with_verification(entity, Some(focused_entity), &mut commands);
+            focus_with_verification(entity, Some(focused_entity), &workspaces, &mut commands);
         }
         return;
     }
@@ -372,7 +388,7 @@ fn command_move_focus(
     };
 
     if let Some(entity) = candidate {
-        focus_with_verification(entity, Some(focused_entity), &mut commands);
+        focus_with_verification(entity, Some(focused_entity), &workspaces, &mut commands);
         // Explicitly reshuffle so the target window is brought into view.
         // This avoids a race where focus-follows-mouse leaves skip_reshuffle
         // set, causing the WindowFocused handler to skip the reshuffle.

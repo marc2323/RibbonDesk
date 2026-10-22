@@ -640,6 +640,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     let MainOptions {
         focus_follows_mouse: _,
         preserve_scroll_until_click: _,
+        disabled_spaces: _,
         mouse_follows_focus: _,
         horizontal_mouse_warp: _,
         horizontal_mouse_warp_offset: _,
@@ -677,6 +678,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     } = &raw_opts;
 
     options.set("focus_follows_mouse", config.focus_follows_mouse())?;
+    options.set("disabled_spaces", config.disabled_spaces())?;
     options.set(
         "preserve_scroll_until_click",
         config.preserve_scroll_until_click(),
