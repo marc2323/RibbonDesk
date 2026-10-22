@@ -22,6 +22,9 @@ restart, and quit controls.
   a manual global pause stays paused. Use the menu-bar icon to re-enable an
   excluded desktop, since its settings hotkey is also inactive.
 - **Window gap:** 0–24 points, in 2-point steps. A gap change briefly refreshes the layout.
+- **Active window outline:** a 2-point teal outline highlights the focused window.
+  Use the color well or hex field to choose any color, or turn the outline off. Choose Save
+  to apply. Color and outline changes reload without restarting the engine.
 
 Save applies settings; Reset Defaults selects the default values for review.
 The full shortcut reference is always visible and has no scrolling area.
@@ -67,7 +70,7 @@ Login launches stay quiet in the menu bar.
 
 Settings live in `~/.config/paneru/preferences.json` and `preferences.lua`.
 `paneru-init.lua` is the source of the installed `init.lua`. Speed and focus
-changes reload configuration; changing only login registration does not disturb
+and outline changes reload configuration; changing only login registration does not disturb
 the engine. Width calibration runs for new windows and explicit gap refreshes,
 never during ordinary hover or activation. Existing preference files migrate
 without resetting their speed, gap, or focus mode.
@@ -81,6 +84,17 @@ no original RibbonDesk runtime is needed.
 The desktop lifecycle checks are independent of desktop windows:
 
 ```sh
-xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
+xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Sources/Preferences.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
 .build/desktop-policy-tests
 ```
+
+These checks also cover outline preference migration, color validation, and Lua
+output. Engine regressions cover outline geometry across display seams and
+event-driven updates with no overlay work at idle. The outline ignores mouse
+input and hides while windows scroll, move, or resize, including scroll inertia.
+It returns after 150 ms without movement, using the focused window's final
+position and current color. During continuous movement it hides once; native
+outline checks and rendering wait until settling. The quiet period uses the
+existing event loop without adding a polling timer. It also hides during
+Mission Control, native fullscreen, or loss of a visible focused window.
+Rendering reuses one compact, display-clipped overlay per touched display.

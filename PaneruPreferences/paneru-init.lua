@@ -1,5 +1,5 @@
 -- Paneru configuration with a native settings companion.
--- Adjust speed and gap from the Paneru menu-bar icon.
+-- Adjust speed, gap, and the active window outline from the menu-bar icon.
 -- All window shortcuts use Control + Option.
 local home = os.getenv("HOME")
 local loaded, preferences = pcall(dofile, home .. "/.config/paneru/preferences.lua")
@@ -11,6 +11,10 @@ local gap = tonumber(preferences.gap) or 6
 if gap ~= gap then gap = 6 end
 gap = math.floor(math.max(0, math.min(24, gap)) / 2 + 0.5) * 2
 local focus_follows_mouse = preferences.focus_follows_mouse ~= false
+local border_color = preferences.border_color
+if type(border_color) ~= "string" or not border_color:match("^#%x%x%x%x%x%x$") then
+    border_color = "#33879E"
+end
 
 local config = {
   ["default_workspaces"] = 1,
@@ -55,6 +59,15 @@ local config = {
     },
   },
   ["decorations"] = {
+    ["active"] = {
+      ["border"] = {
+        ["enabled"] = preferences.border_enabled ~= false,
+        ["color"] = border_color,
+        ["width"] = 2.0,
+        ["opacity"] = 1.0,
+        ["radius"] = "auto",
+      },
+    },
     ["workspace_menu_status"] = false,
     ["workspace_popup_status"] = false,
     ["menu"] = {

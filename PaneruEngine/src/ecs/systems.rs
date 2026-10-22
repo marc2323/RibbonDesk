@@ -1,5 +1,5 @@
 use bevy::app::AppExit;
-use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::entity::{Entity, EntityHashMap};
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::{MessageReader, MessageWriter};
@@ -24,13 +24,14 @@ use super::{
 };
 
 use crate::config::{Config, decorations::BorderRadiusOption};
+use crate::ecs::decorations::{OverlayMotion, OverlayState};
 use crate::ecs::display::FloatingLayer;
 use crate::ecs::layout::{Column, LayoutStrip};
 use crate::ecs::params::{ActiveDisplay, FrameActivity, Windows};
 use crate::ecs::{
     ActiveWorkspaceMarker, Bounds, BruteforceWindows, FlashMessage, FocusedMarker, Initializing,
     LowPowerMode, MissionControlActive, Position, QuickReveal, ReadDisplayProperties,
-    RestoreWindowState, Scrolling, SendMessageTrigger, SpawnCommandsExt, Unmanaged, WidthRatio,
+    RestoreWindowState, SendMessageTrigger, SpawnCommandsExt, Unmanaged, WidthRatio,
     WindowProperties,
 };
 use crate::events::{Event, InputEvent};
@@ -984,68 +985,65 @@ pub(crate) fn gather_initial_processes(
     }
 }
 
-#[derive(Default)]
-pub(super) struct OverlayWindowConfigCache {
-    window_id: Option<WinID>,
-    focused_border_radius: Option<f64>,
-    detected_border_radius: Option<f64>,
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn update_overlays(
-    // Gating lives in the `overlay_dirty` run condition (strip change *or*
-    // focus change); this query just resolves the current active workspace.
-    active_workspace: Populated<(Has<Scrolling>, &LayoutStrip), With<ActiveWorkspaceMarker>>,
+    // `overlay_dirty` schedules changes; an empty query must still run so
+    // losing the last active workspace hides the previous outline.
+    active_workspace: Query<&LayoutStrip, With<ActiveWorkspaceMarker>>,
     windows: Windows,
     applications: Query<&Application>,
-    overlay_mgr: Option<NonSendMut<OverlayManager>>,
+    // Keep configuration/native window reads on the main thread, including
+    // builds whose scheduler uses worker threads. Tests need no native manager.
+    _overlay_mgr: Option<NonSend<OverlayManager>>,
     mission_control_active: Res<MissionControlActive>,
     config: Res<Config>,
-    mut window_config_cache: Local<OverlayWindowConfigCache>,
+    motion: Res<OverlayMotion>,
     window_manager: Res<WindowManager>,
-) {
+) -> OverlayState {
     use crate::overlay::BorderParams;
     use objc2_foundation::{NSPoint, NSRect, NSSize};
 
-    let Some(mut overlay_mgr) = overlay_mgr else {
-        return;
-    };
-
     let dim_opacity = config.dim_inactive_opacity();
     let border_enabled = config.border_active_window();
-
-    // Hide overlays during swipe, mission control, native fullscreen spaces,
-    // or briefly after a space change (macOS space-switch animation).
-    let Some((swiping, active_strip)) = active_workspace.iter().next() else {
-        return;
-    };
-
-    if swiping || mission_control_active.0 || active_strip.is_fullscreen() {
-        overlay_mgr.hide_all();
-        return;
+    if dim_opacity == 0.0 && !border_enabled {
+        return OverlayState::Disabled;
     }
 
-    if dim_opacity == 0.0 && !border_enabled {
-        overlay_mgr.remove_all();
-        return;
+    // Motion only hides the existing overlay. Native window checks and drawing
+    // wait until scrolling, inertia, dragging, and resizing have settled.
+    if motion.is_settling() {
+        return OverlayState::Hidden;
+    }
+
+    let Some(active_strip) = active_workspace.iter().next() else {
+        return OverlayState::Hidden;
+    };
+
+    if mission_control_active.0 || active_strip.is_fullscreen() {
+        return OverlayState::Hidden;
     }
 
     let Some((window, entity)) = windows.focused() else {
-        return;
+        return OverlayState::Hidden;
     };
     let focused_window_id = window.id();
-    let show_overlay = !window.is_full_screen()
-        && (active_strip.contains(entity)
-            // if the window is floating, check whether it's present in the workspace.
-            || window_manager
-                .windows_in_workspace(active_strip.id())
-                .is_ok_and(|ids| ids.contains(&focused_window_id)));
-
-    if !show_overlay {
+    let focused_app_is_frontmost = windows
+        .find_parent(focused_window_id)
+        .and_then(|(_, _, parent)| applications.get(parent).ok())
+        .is_some_and(|app| app.is_frontmost());
+    if !focused_app_is_frontmost {
         // No managed window on the active workspace has focus — hide the overlay rather than
         // dimming everything or drawing a ghost border around an off-screen window.
-        overlay_mgr.hide_all();
-        return;
+        return OverlayState::Hidden;
+    }
+
+    if window.is_full_screen()
+        || (!active_strip.contains(entity)
+            && !window_manager
+                .windows_in_workspace(active_strip.id())
+                .is_ok_and(|ids| ids.contains(&focused_window_id)))
+    {
+        return OverlayState::Hidden;
     }
 
     // Find the focused managed window's absolute CG frame.
@@ -1053,7 +1051,7 @@ pub(super) fn update_overlays(
         let frame = window.frame();
         let h_pad = window.horizontal_padding();
         let v_pad = window.vertical_padding();
-        Some(NSRect::new(
+        NSRect::new(
             NSPoint::new(
                 f64::from(frame.min.x + h_pad),
                 f64::from(frame.min.y + v_pad),
@@ -1062,25 +1060,20 @@ pub(super) fn update_overlays(
                 f64::from(frame.width() - 2 * h_pad),
                 f64::from(frame.height() - 2 * v_pad),
             ),
-        ))
+        )
     };
 
     let border_params = if border_enabled {
-        if window_config_cache.window_id != Some(focused_window_id) || config.is_changed() {
-            let Some((window, _, parent)) = windows.find_parent(focused_window_id) else {
-                return;
-            };
-            let Ok(app) = applications.get(parent) else {
-                return;
-            };
-            let properties = WindowProperties::new(app, window, &config);
-            window_config_cache.window_id = Some(focused_window_id);
-            window_config_cache.focused_border_radius = properties.border_radius();
-            window_config_cache.detected_border_radius = window.border_radius();
-        }
+        let Some((window, _, parent)) = windows.find_parent(focused_window_id) else {
+            return OverlayState::Hidden;
+        };
+        let Ok(app) = applications.get(parent) else {
+            return OverlayState::Hidden;
+        };
+        let properties = WindowProperties::new(app, window, &config);
 
         let calculated_radius = match config.border_radius() {
-            BorderRadiusOption::Auto => window_config_cache.detected_border_radius.unwrap_or(10.0),
+            BorderRadiusOption::Auto => window.border_radius().unwrap_or(10.0),
             BorderRadiusOption::Value(value) => value.max(0.0),
         };
 
@@ -1088,22 +1081,40 @@ pub(super) fn update_overlays(
             color: config.border_color(),
             opacity: config.border_opacity(),
             width: config.border_width(),
-            radius: window_config_cache
-                .focused_border_radius
-                .unwrap_or(calculated_radius),
+            radius: properties.border_radius().unwrap_or(calculated_radius),
         })
     } else {
-        window_config_cache.window_id = None;
         None
     };
 
     let dim_color = config.dim_inactive_color();
-    overlay_mgr.update(
+    OverlayState::Visible {
+        frame: focused_abs_cg,
         dim_opacity,
         dim_color,
-        focused_abs_cg,
-        border_params.as_ref(),
-    );
+        border: border_params,
+    }
+}
+
+pub(crate) fn render_overlays(
+    state: Res<OverlayState>,
+    overlay_mgr: Option<NonSendMut<OverlayManager>>,
+) {
+    let Some(mut overlay_mgr) = overlay_mgr else {
+        return;
+    };
+    match &*state {
+        OverlayState::Hidden => overlay_mgr.hide_all(),
+        OverlayState::Disabled => overlay_mgr.remove_all(),
+        OverlayState::Visible {
+            frame,
+            dim_opacity,
+            dim_color,
+            border,
+        } => {
+            overlay_mgr.update(*dim_opacity, *dim_color, Some(*frame), border.as_ref());
+        }
+    }
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
