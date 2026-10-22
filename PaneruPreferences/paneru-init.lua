@@ -19,6 +19,7 @@ local config = {
     ["window_resize_cycle"] = true,
     ["focus_follows_mouse"] = focus_follows_mouse,
     ["preserve_scroll_until_click"] = true,
+    ["disabled_spaces"] = preferences.disabled_spaces or {},
     ["mouse_follows_focus"] = false,
     ["auto_center"] = false,
     ["animation_speed"] = 10000.0,

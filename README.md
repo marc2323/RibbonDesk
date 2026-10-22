@@ -9,9 +9,16 @@ complete Control–Option shortcut list visible without scrolling.
 
 Scrolling keeps its natural inertia. Once placed, the viewport stays where the
 user left it through hover, repeated focus notifications, and application
-activation. Only clicking a managed window in that workspace releases the hold.
-Keyboard focus alone does not release it. The hold is separate from focus, so
-Mouse over mode can still activate windows without moving the strip.
+activation and ordinary clicks. **Command-click a managed window** to snap it
+into view on mouse-up with a quick animation (about 150ms). **Previous/Next window
+hotkeys always scroll to the selected window**, even after manual scrolling.
+Hover and ordinary focus notifications keep the manually chosen viewport.
+
+**Enable on this Desktop** in the menu-bar settings controls each native macOS
+desktop Space separately. Disable it and Save to turn off Paneru's tiling,
+gestures, activation, click protection, and hotkeys on that desktop. Switching
+back to an enabled desktop resumes Paneru. Re-enable an excluded desktop through
+the menu-bar icon; its settings hotkey is also inactive.
 
 ## Build and install
 
@@ -58,7 +65,8 @@ zsh PaneruPreferences/build.sh
 
 The regression harness scrolls a real Bevy workspace, checks its offset through
 hover, external/repeated focus and app activation, checks that a non-window click
-does not release the hold, then confirms a window click allows revealing again.
+does not release the hold, then confirms ordinary clicks preserve it and
+Command-click reveals the window after mouse-up in either activation mode.
 It uses a mock macOS window manager and does not move desktop windows.
 
 Native checks on 2026-10-21 also covered starting the companion and bundled

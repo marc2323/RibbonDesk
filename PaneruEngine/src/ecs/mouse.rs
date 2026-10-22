@@ -20,7 +20,7 @@ use bevy::ecs::schedule::common_conditions::on_message;
 
 use crate::events::{Event, InputEvent};
 use crate::manager::{Display, Origin, WindowManager, origin_from};
-use crate::platform::WinID;
+use crate::platform::{Modifiers, WinID};
 use crate::util::round_px;
 
 /// Bottom-right corner region (`NxN` pixels) where focus events are suppressed.
@@ -52,6 +52,9 @@ impl Plugin for MouseEventsPlugin {
                 mouse_up_trigger,
                 horizontal_warp_mouse_trigger,
             )
+                // Apply the pending reveal marker before reading mouse-up,
+                // including when a quick click arrives entirely in one frame.
+                .chain()
                 .run_if(on_message::<InputEvent>),
         );
     }
@@ -194,17 +197,10 @@ fn mouse_moved_trigger(
 
 /// Handles mouse down events.
 ///
-/// This function finds the window at the click point. If the window is not fully visible,
-/// it triggers a reshuffle to expose it.
+/// Stops scrolling over a managed window and queues a reveal after mouse-up.
+/// With scroll-position preservation enabled, only Command-click queues a reveal;
+/// ordinary clicks let the user work in a partially visible window in place.
 ///
-/// # Arguments
-///
-/// * `trigger` - The Bevy event trigger containing the mouse down event.
-/// * `windows` - A query for all windows.
-/// * `active_display` - A query for the active display.
-/// * `main_cid` - The main connection ID resource.
-/// * `commands` - Bevy commands to trigger a reshuffle.
-#[allow(clippy::too_many_arguments)]
 fn mouse_down_trigger(
     mut messages: MessageReader<InputEvent>,
     windows: Windows,
@@ -212,14 +208,20 @@ fn mouse_down_trigger(
     window_manager: Res<WindowManager>,
     config: Res<Config>,
     mouse_held: Query<Entity, With<MouseHeldMarker>>,
-    held_offsets: Query<(Entity, &LayoutStrip), With<ScrollPositionHold>>,
     mut commands: Commands,
 ) {
     for InputEvent(event) in messages.read() {
-        let Event::MouseDown { point, .. } = event else {
+        let Event::MouseDown { point, modifiers } = event else {
             continue;
         };
         trace!("{point:?}");
+
+        // A new click cancels a stale pending reveal, even outside managed windows.
+        for held in &mouse_held {
+            if let Ok(mut entity_commands) = commands.get_entity(held) {
+                entity_commands.try_despawn();
+            }
+        }
 
         let Some((_, entity)) = window_manager
             .find_window_at_point(point)
@@ -228,16 +230,6 @@ fn mouse_down_trigger(
         else {
             continue;
         };
-
-        // Only an actual click in this strip releases its viewport hold.
-        // Focus/hover notifications and clicks in other workspaces do not.
-        for (strip_entity, strip) in &held_offsets {
-            if strip.contains(entity)
-                && let Ok(mut cmd) = commands.get_entity(strip_entity)
-            {
-                cmd.try_remove::<ScrollPositionHold>();
-            }
-        }
 
         // Stop any ongoing scroll.
         for (entity, scroll) in active_workspace {
@@ -248,14 +240,11 @@ fn mouse_down_trigger(
             }
         }
 
-        // Clean up any stale marker from a previous click.
-        for held in &mouse_held {
-            if let Ok(mut entity_commands) = commands.get_entity(held) {
-                entity_commands.try_despawn();
-            }
+        if config.preserve_scroll_until_click() && !modifiers.intersects(Modifiers::CMD) {
+            continue;
         }
 
-        if config.window_hidden_ratio() >= 1.0 {
+        if !config.preserve_scroll_until_click() && config.window_hidden_ratio() >= 1.0 {
             // At max hidden ratio, never reshuffle on click.
         } else {
             // Defer reshuffle until mouse-up so the window doesn't shift
@@ -266,11 +255,14 @@ fn mouse_down_trigger(
     }
 }
 
-/// Handles mouse-up events. Triggers the deferred reshuffle so the clicked
-/// window slides into view after the user releases the button.
+/// Releases only the clicked workspace's hold and exposes the window on mouse-up.
+/// Keeping the hold through mouse-down prevents focus notifications from moving
+/// the window while the button is still pressed.
 fn mouse_up_trigger(
     mut messages: MessageReader<InputEvent>,
     mouse_held: Query<(Entity, &MouseHeldMarker)>,
+    held_offsets: Query<(Entity, &LayoutStrip), With<ScrollPositionHold>>,
+    config: Res<Config>,
     mut commands: Commands,
 ) {
     for InputEvent(event) in messages.read() {
@@ -279,7 +271,20 @@ fn mouse_up_trigger(
         }
 
         for (held_entity, marker) in &mouse_held {
-            commands.reshuffle_around(marker.0);
+            for (strip_entity, strip) in &held_offsets {
+                if strip.contains(marker.0)
+                    && let Ok(mut cmd) = commands.get_entity(strip_entity)
+                {
+                    cmd.try_remove::<ScrollPositionHold>();
+                }
+            }
+            if config.preserve_scroll_until_click() {
+                // This is an explicit reveal, independent of the automatic
+                // focus reveal's hidden-ratio threshold.
+                commands.ensure_visible_quickly(marker.0);
+            } else {
+                commands.reshuffle_around(marker.0);
+            }
             if let Ok(mut entity_commands) = commands.get_entity(held_entity) {
                 entity_commands.try_despawn();
             }

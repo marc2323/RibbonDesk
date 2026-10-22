@@ -32,14 +32,232 @@ fn active_offset_and_hold(world: &mut World) -> (Origin, bool) {
 }
 
 #[test]
-fn scroll_offset_survives_hover_focus_and_activation_until_window_click() {
+fn keyboard_navigation_always_reveals_after_manual_scroll() {
+    for (start, target, direction) in [
+        (1, 0, Direction::West),
+        (2, 3, Direction::East),
+        (0, 0, Direction::First),
+        (4, 4, Direction::Last),
+    ] {
+        for hidden_ratio in [0.0, 1.0] {
+            let config: Config = (
+                MainOptions {
+                    preserve_scroll_until_click: Some(true),
+                    focus_follows_mouse: Some(false),
+                    animation_speed: Some(10000.0),
+                    swipe_gesture_fingers: Some(3),
+                    window_hidden_ratio: Some(hidden_ratio),
+                    ..Default::default()
+                },
+                vec![],
+            )
+                .into();
+            TestHarness::new()
+                .with_config(config)
+                .with_windows(5)
+                .on_iteration(0, move |_, state| state.focus_window(start))
+                .on_iteration(1, move |world, _| {
+                    assert_focused!(world, start);
+                })
+                .on_iteration(2, |world, _| {
+                    assert!(active_offset_and_hold(world).1);
+                })
+                .on_iteration(3, move |world, _| {
+                    assert_focused!(world, target);
+                    assert!(!active_offset_and_hold(world).1);
+                    let entity = find_window_entity(target, world);
+                    let frame = world.get::<Window>(entity).expect("target window").frame();
+                    assert!(
+                        frame.min.x >= 0 && frame.max.x <= TEST_DISPLAY_WIDTH,
+                        "keyboard target must be fully visible: {frame:?}"
+                    );
+                    assert!(
+                        world
+                            .query::<&crate::ecs::Scrolling>()
+                            .iter(world)
+                            .next()
+                            .is_none()
+                    );
+                })
+                .on_iteration(4, |world, _| {
+                    assert!(
+                        active_offset_and_hold(world).1,
+                        "another trackpad scroll holds again"
+                    );
+                })
+                .run(vec![
+                    Event::MenuOpened { window_id: 0 },
+                    Event::WindowFocused { window_id: start },
+                    Event::Swipe {
+                        delta: 0.04,
+                        fingers: 3,
+                    },
+                    Event::Command {
+                        command: Command::Window(Operation::Focus(direction.clone())),
+                    },
+                    Event::Swipe {
+                        delta: 0.04,
+                        fingers: 3,
+                    },
+                ]);
+        }
+    }
+}
+
+#[test]
+fn command_click_reveal_is_briefly_animated_and_trackpad_can_interrupt_it() {
+    for interrupt in [false, true] {
+        let config: Config = (
+            MainOptions {
+                preserve_scroll_until_click: Some(true),
+                focus_follows_mouse: Some(false),
+                animation_speed: Some(10000.0),
+                swipe_gesture_fingers: Some(3),
+                ..Default::default()
+            },
+            vec![],
+        )
+            .into();
+        let mut harness = TestHarness::new().with_config(config).with_windows(5);
+        harness.run(vec![
+            Event::MenuOpened { window_id: 0 },
+            Event::Swipe {
+                delta: 0.04,
+                fingers: 3,
+            },
+            Event::MouseDown {
+                point: CGPoint::new(100.0, 120.0),
+                modifiers: Modifiers::LCMD,
+            },
+        ]);
+        let before = active_offset_and_hold(harness.world()).0.x;
+        assert!(before < 0);
+        harness.world().write_message(Event::MouseUp {
+            point: CGPoint::new(100.0, 120.0),
+            modifiers: Modifiers::empty(),
+        });
+        harness.advance(Duration::from_millis(20));
+        let (during, held) = active_offset_and_hold(harness.world());
+        assert!(!held);
+        assert!(
+            during.x > before && during.x < 0,
+            "first frame must animate: {before} -> {}",
+            during.x
+        );
+        if interrupt {
+            harness.world().write_message(Event::Swipe {
+                delta: 0.01,
+                fingers: 3,
+            });
+        }
+        harness.advance(Duration::from_millis(200));
+        assert!(
+            harness
+                .world()
+                .query::<&crate::ecs::QuickReveal>()
+                .iter(harness.world())
+                .next()
+                .is_none()
+        );
+        if interrupt {
+            assert!(active_offset_and_hold(harness.world()).1);
+        } else {
+            assert_eq!(
+                active_offset_and_hold(harness.world()).0.x,
+                0,
+                "reveal finishes in 200ms"
+            );
+        }
+    }
+}
+
+#[test]
+fn disabled_native_spaces_are_never_managed_in_the_background() {
+    let config: Config = (
+        MainOptions {
+            disabled_spaces: Some(vec![EXT_WORKSPACE_ID]),
+            ..Default::default()
+        },
+        vec![],
+    )
+        .into();
+    TestHarness::new()
+        .with_config(config)
+        .with_display(
+            EXT_DISPLAY_ID,
+            IRect::new(1024, 0, 2944, 1200),
+            vec![EXT_WORKSPACE_ID],
+        )
+        .with_windows(2)
+        .with_workspace_window(100, EXT_WORKSPACE_ID, |_| {})
+        .on_iteration(0, |world, state| {
+            let mut windows = world.query::<&Window>();
+            assert_eq!(windows.iter(world).count(), 2);
+            assert!(windows.iter(world).all(|window| window.id() != 100));
+            let new_window = state.spawn_window(
+                TEST_PROCESS_ID,
+                EXT_WORKSPACE_ID,
+                101,
+                IRect::new(1200, 100, 1600, 600),
+            );
+            world.trigger(SpawnWindowTrigger(vec![new_window]));
+        })
+        .on_iteration(1, |world, state| {
+            let mut windows = world.query::<&Window>();
+            assert_eq!(
+                windows.iter(world).count(),
+                2,
+                "new excluded windows stay native"
+            );
+            world
+                .resource::<Config>()
+                .replace_inner_from(&Config::default());
+            world.trigger(SpawnWindowTrigger(vec![state.create_window(100)]));
+        })
+        .on_iteration(2, |world, _| {
+            let mut windows = world.query::<&Window>();
+            assert!(
+                windows.iter(world).any(|window| window.id() == 100),
+                "re-enabled desktops can be managed again"
+            );
+        })
+        .run(vec![
+            Event::Command {
+                command: Command::PrintState,
+            },
+            Event::Command {
+                command: Command::PrintState,
+            },
+            Event::Command {
+                command: Command::PrintState,
+            },
+        ]);
+}
+
+#[test]
+fn scroll_offset_survives_ordinary_clicks_until_command_click() {
+    for focus_follows_mouse in [false, true] {
+        for command in [Modifiers::LCMD, Modifiers::RCMD] {
+            for hidden_ratio in [0.0, 1.0] {
+                check_scroll_hold_until_command_click(focus_follows_mouse, command, hidden_ratio);
+            }
+        }
+    }
+}
+
+fn check_scroll_hold_until_command_click(
+    focus_follows_mouse: bool,
+    command: Modifiers,
+    hidden_ratio: f64,
+) {
     let config: Config = (
         MainOptions {
             preserve_scroll_until_click: Some(true),
-            focus_follows_mouse: Some(true),
+            focus_follows_mouse: Some(focus_follows_mouse),
             auto_center: Some(false),
             animation_speed: Some(10000.0),
             swipe_gesture_fingers: Some(3),
+            window_hidden_ratio: Some(hidden_ratio),
             ..Default::default()
         },
         vec![],
@@ -57,31 +275,42 @@ fn scroll_offset_survives_hover_focus_and_activation_until_window_click() {
         .on_iteration(2, |_, state| {
             state.focus_window(4);
         })
-        .on_iteration(9, |world, _| {
+        .on_iteration(18, |world, _| {
             assert!(
                 !active_offset_and_hold(world).1,
-                "a window click releases the hold"
+                "Command-click releases the hold on mouse-up"
             );
-        })
-        .on_iteration(10, |world, _| {
             assert_eq!(
                 active_offset_and_hold(world).0.x,
                 0,
-                "click may reveal the first window"
+                "Command-click reveals the partially visible first window"
             );
         });
-    for step in 3..=8 {
-        harness = harness.on_iteration(step, |world, _| {
+    for step in 3..=17 {
+        harness = harness.on_iteration(step, move |world, state| {
+            if step == 9 {
+                let entity = find_window_entity(0, world);
+                let frame = world.get::<Window>(entity).expect("first window").frame();
+                assert!(frame.min.x < 0 && frame.max.x > 100);
+                state.focus_window(0);
+            }
+            if step >= 10 {
+                assert_focused!(world, 0);
+            }
             let expected = world.resource::<ExpectedHeldOffset>().0;
             let (offset, held) = active_offset_and_hold(world);
             assert!(
                 held,
-                "activation and non-window clicks cannot release the hold"
+                "ordinary interaction and Command-mouse-down must preserve the hold"
             );
             assert_eq!(offset, expected);
         });
     }
-    harness.run(vec![
+    harness.run(scroll_hold_interaction_events(command));
+}
+
+fn scroll_hold_interaction_events(command: Modifiers) -> Vec<Event> {
+    vec![
         Event::MenuOpened { window_id: 0 },
         Event::Swipe {
             delta: 0.04,
@@ -101,7 +330,7 @@ fn scroll_offset_survives_hover_focus_and_activation_until_window_click() {
         },
         Event::MouseDown {
             point: CGPoint::new(-10000.0, -10000.0),
-            modifiers: Modifiers::empty(),
+            modifiers: command,
         },
         Event::MouseUp {
             point: CGPoint::new(-10000.0, -10000.0),
@@ -111,11 +340,128 @@ fn scroll_offset_survives_hover_focus_and_activation_until_window_click() {
             point: CGPoint::new(100.0, 120.0),
             modifiers: Modifiers::empty(),
         },
+        Event::WindowFocused { window_id: 0 },
         Event::MouseUp {
             point: CGPoint::new(100.0, 120.0),
             modifiers: Modifiers::empty(),
         },
-    ]);
+        Event::WindowFocused { window_id: 0 },
+        Event::ApplicationActivated {
+            pid: TEST_PROCESS_ID,
+        },
+        Event::MouseDown {
+            point: CGPoint::new(100.0, 120.0),
+            modifiers: Modifiers::ALT,
+        },
+        Event::MouseUp {
+            point: CGPoint::new(100.0, 120.0),
+            modifiers: Modifiers::ALT,
+        },
+        Event::MouseDown {
+            point: CGPoint::new(100.0, 120.0),
+            modifiers: command,
+        },
+        Event::WindowFocused { window_id: 0 },
+        // Releasing Command before the button must still complete the snap.
+        Event::MouseUp {
+            point: CGPoint::new(100.0, 120.0),
+            modifiers: Modifiers::empty(),
+        },
+    ]
+}
+
+#[test]
+fn command_click_reveals_when_mouse_events_arrive_in_one_frame() {
+    let config: Config = (
+        MainOptions {
+            preserve_scroll_until_click: Some(true),
+            auto_center: Some(false),
+            animation_speed: Some(10000.0),
+            swipe_gesture_fingers: Some(3),
+            ..Default::default()
+        },
+        vec![],
+    )
+        .into();
+    TestHarness::new()
+        .with_config(config)
+        .with_windows(5)
+        .on_iteration(1, |world, _| {
+            assert!(active_offset_and_hold(world).1);
+            world.write_message(Event::MouseDown {
+                point: CGPoint::new(100.0, 120.0),
+                modifiers: Modifiers::LCMD,
+            });
+            world.write_message(Event::MouseUp {
+                point: CGPoint::new(100.0, 120.0),
+                modifiers: Modifiers::empty(),
+            });
+        })
+        .on_iteration(2, |world, _| {
+            let (offset, held) = active_offset_and_hold(world);
+            assert!(!held, "a quick Command-click must release the hold");
+            assert_eq!(offset.x, 0);
+        })
+        .run(vec![
+            Event::MenuOpened { window_id: 0 },
+            Event::Swipe {
+                delta: 0.04,
+                fingers: 3,
+            },
+            Event::Command {
+                command: Command::PrintState,
+            },
+        ]);
+}
+
+#[test]
+fn ordinary_click_still_reveals_when_scroll_preservation_is_disabled() {
+    let config: Config = (
+        MainOptions {
+            preserve_scroll_until_click: Some(false),
+            focus_follows_mouse: Some(false),
+            auto_center: Some(false),
+            animation_speed: Some(10000.0),
+            swipe_gesture_fingers: Some(3),
+            ..Default::default()
+        },
+        vec![],
+    )
+        .into();
+    TestHarness::new()
+        .with_config(config)
+        .with_windows(5)
+        .on_iteration(1, |world, _| {
+            let (offset, held) = active_offset_and_hold(world);
+            assert!(!held);
+            assert!(offset.x < 0);
+            world.insert_resource(ExpectedHeldOffset(offset));
+        })
+        .on_iteration(2, |world, _| {
+            assert_eq!(
+                active_offset_and_hold(world).0,
+                world.resource::<ExpectedHeldOffset>().0,
+                "the window stays put until mouse-up"
+            );
+        })
+        .on_iteration(3, |world, _| {
+            assert_eq!(active_offset_and_hold(world).0.x, 0);
+        })
+        .run(vec![
+            Event::MenuOpened { window_id: 0 },
+            Event::Swipe {
+                delta: 0.04,
+                fingers: 3,
+            },
+            Event::MouseDown {
+                point: CGPoint::new(100.0, 120.0),
+                modifiers: Modifiers::empty(),
+            },
+            Event::MouseUp {
+                point: CGPoint::new(100.0, 120.0),
+                modifiers: Modifiers::empty(),
+            },
+        ]);
 }
 
 #[test]
@@ -497,21 +843,21 @@ fn test_scrolling_stop() {
 }
 
 #[test]
-fn test_window_hidden_ratio() {
+fn automatic_focus_respects_window_hidden_ratio() {
     let commands = vec![
         Event::MenuOpened { window_id: 0 },
+        Event::WindowFocused { window_id: 1 },
         Event::Swipe {
             delta: 0.3,
             fingers: 3,
         },
-        Event::Command {
-            command: Command::Window(Operation::Focus(Direction::First)),
-        },
+        Event::WindowFocused { window_id: 0 },
     ];
 
     let config: Config = (
         MainOptions {
             window_hidden_ratio: Some(0.5),
+            focus_follows_mouse: Some(false),
             animation_speed: Some(10000.0),
             swipe_gesture_fingers: Some(3),
             ..Default::default()
@@ -523,7 +869,9 @@ fn test_window_hidden_ratio() {
     TestHarness::new()
         .with_config(config)
         .with_windows(2)
-        .on_iteration(2, |world, _state| {
+        .on_iteration(0, |_, state| state.focus_window(1))
+        .on_iteration(2, |_, state| state.focus_window(0))
+        .on_iteration(3, |world, _state| {
             let entity = find_window_entity(0, world);
             let window = world.get::<Window>(entity).expect("finding window");
             assert!(window.frame().min.x < 0);

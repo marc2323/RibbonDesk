@@ -805,6 +805,10 @@ impl Config {
         self.options().preserve_scroll_until_click.unwrap_or(false)
     }
 
+    pub fn disabled_spaces(&self) -> Vec<u64> {
+        self.options().disabled_spaces.unwrap_or_default()
+    }
+
     /// Returns `true` if the mouse cursor should follow the focused window based on the current configuration.
     /// If the configuration option is not set, it defaults to `true`.
     pub fn mouse_follows_focus(&self) -> bool {
@@ -1186,8 +1190,12 @@ pub struct RestoreOptions {
 pub struct MainOptions {
     /// Enables or disables focus follows mouse behavior.
     pub focus_follows_mouse: Option<bool>,
-    /// Hold a manually scrolled viewport until a window is clicked.
+    /// Hold a manually scrolled viewport until a managed window is Command-clicked.
+    /// Ordinary clicks interact in place; reveal occurs on mouse-up.
     pub preserve_scroll_until_click: Option<bool>,
+    /// Native macOS Space IDs excluded from window management and global input.
+    /// The companion resolves persistent Space UUIDs to IDs at each launch.
+    pub disabled_spaces: Option<Vec<u64>>,
     /// Enables or disables mouse follows focus behavior.
     pub mouse_follows_focus: Option<bool>,
     /// Warps the mouse to the closest screen when at the edge.

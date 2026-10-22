@@ -78,6 +78,43 @@ pub fn irect_from(rect: CGRect) -> IRect {
     IRect::from_center_size(origin_from(mid), size_from(rect.size))
 }
 
+/// Read the native visible Spaces directly at input time, before the companion
+/// can finish stopping the engine after a desktop transition. Runs on the
+/// event tap's main run loop and never touches the ECS from the callback.
+pub(crate) fn disabled_space_is_visible(disabled: &[WorkspaceId]) -> bool {
+    if disabled.is_empty() {
+        return false;
+    }
+    let Some(active) = NonNull::new(
+        unsafe { SLSCopyActiveMenuBarDisplayIdentifier(SLSMainConnectionID()) }.cast_mut(),
+    )
+    .map(|ptr| unsafe { CFRetained::from_raw(ptr) }) else {
+        return false;
+    };
+    let active = active.to_string();
+    let Some(spaces) = NonNull::new(unsafe { SLSCopyManagedDisplaySpaces(SLSMainConnectionID()) })
+        .map(|ptr| unsafe { CFRetained::from_raw(ptr) })
+    else {
+        return false;
+    };
+    spaces.iter().any(|display| {
+        if display
+            .get(&CFString::from_static_str("Display Identifier"))
+            .is_none_or(|identifier| identifier.to_string() != active)
+        {
+            return false;
+        }
+        let display =
+            unsafe { display.cast_unchecked::<CFString, CFDictionary<CFString, CFNumber>>() };
+        display
+            .get(&CFString::from_static_str("Current Space"))
+            .and_then(|space| space.get(&CFString::from_static_str("id64")))
+            .and_then(|id| id.as_i64())
+            .and_then(|id| u64::try_from(id).ok())
+            .is_some_and(|id| disabled.contains(&id))
+    })
+}
+
 /// Defines the interface for a window manager, abstracting OS-specific operations.
 #[automock]
 pub trait WindowManagerApi: Send + Sync {

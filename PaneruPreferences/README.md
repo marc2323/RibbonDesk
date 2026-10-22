@@ -15,10 +15,23 @@ restart, and quit controls.
   macOS Service Management. Choose Save after changing it. If macOS requires
   approval, use the displayed Login Items button.
 - **Scroll speed:** 0.20–1.50, in 0.05 steps.
+- **Enable on this Desktop:** saves whether Paneru runs on the current native
+  macOS desktop Space. Turn it off and Save to use normal macOS windows there.
+  Tiling, strip gestures, hover activation, click protection, and all Paneru
+  hotkeys are inactive. Return to an enabled desktop to resume automatically;
+  a manual global pause stays paused. Use the menu-bar icon to re-enable an
+  excluded desktop, since its settings hotkey is also inactive.
 - **Window gap:** 0–24 points, in 2-point steps. A gap change briefly refreshes the layout.
 
 Save applies settings; Reset Defaults selects the default values for review.
 The full shortcut reference is always visible and has no scrolling area.
+
+Desktop exclusions follow native Space identities rather than desktop numbers,
+so reordering desktops retains their choices. The original desktop can have no
+UUID; it uses its native root ID. With multiple displays, the active menu-bar
+display determines whether the engine runs. Windows on excluded desktops remain
+unmanaged while using an enabled desktop on another display. Removed desktops
+do not cause newly created desktops to inherit their exclusion.
 
 ## Shortcuts
 
@@ -36,8 +49,13 @@ Hold **Control + Option**:
 | S | Open settings |
 | Q | Pause window management |
 
-Focus commands preserve a held viewport until a window click. Three-finger
-horizontal gestures scroll the strip; ordinary two-finger gestures scroll apps.
+Three-finger horizontal gestures scroll the strip; ordinary two-finger gestures
+scroll apps. Ordinary clicks keep a manually scrolled viewport in place, so you
+can work in partially visible windows. **Command-click a window** to bring it into
+view with a quick animation (about 150ms) after releasing the mouse button.
+Either Command key works in Mouse over and Click modes. **Previous/Next and
+First/Last hotkeys always reveal their target**, taking over from manual scrolling.
+Another trackpad scroll restores the hold; hover and activation keep it in place.
 
 ## Runtime and build
 
@@ -59,3 +77,10 @@ Build the engine with `zsh PaneruEngine/build.sh`, then the companion with
 Builds use the configured local signing identity without changing certificate
 trust. Signing scripts and public identity selection now belong to this app;
 no original RibbonDesk runtime is needed.
+
+The desktop lifecycle checks are independent of desktop windows:
+
+```sh
+xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
+.build/desktop-policy-tests
+```

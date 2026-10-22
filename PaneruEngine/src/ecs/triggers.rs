@@ -1061,6 +1061,7 @@ fn give_away_focus(
 /// * `main_cid` - The main connection ID resource.
 /// * `commands` - Bevy commands to manage components and trigger events.
 #[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_window_trigger(
     mut trigger: On<SpawnWindowTrigger>,
     windows: Query<&Window>,
@@ -1068,12 +1069,27 @@ pub(super) fn spawn_window_trigger(
     active_display: ActiveDisplay,
     initializing: Option<Res<Initializing>>,
     restore: Option<Res<crate::ecs::restore::SessionRestore>>,
+    config: Res<Config>,
+    window_manager: Res<WindowManager>,
     mut commands: Commands,
 ) {
     let new_windows = &mut trigger.event_mut().0;
+    // Do not discover or tile excluded desktops in the background while Paneru
+    // runs on an enabled desktop. The companion stops the engine when an
+    // excluded desktop becomes visible.
+    let excluded_windows = config
+        .disabled_spaces()
+        .into_iter()
+        .filter_map(|space| window_manager.windows_in_workspace(space).ok())
+        .flatten()
+        .collect::<std::collections::HashSet<_>>();
 
     while let Some(mut window) = new_windows.pop() {
         let window_id = window.id();
+
+        if excluded_windows.contains(&window_id) {
+            continue;
+        }
 
         if windows.iter().any(|window| window.id() == window_id) {
             continue;
@@ -1420,6 +1436,16 @@ pub(super) fn send_message_trigger(
 ) {
     let event = &trigger.event().0;
     messages.write(event.clone());
+}
+
+#[instrument(level = Level::DEBUG, skip_all, fields(trigger))]
+pub(super) fn cleanup_quick_reveal(
+    trigger: On<Remove, super::RepositionMarker>,
+    mut commands: Commands,
+) {
+    if let Ok(mut entity_commands) = commands.get_entity(trigger.event().entity) {
+        entity_commands.try_remove::<super::QuickReveal>();
+    }
 }
 
 #[instrument(level = Level::DEBUG, skip_all, fields(trigger))]
