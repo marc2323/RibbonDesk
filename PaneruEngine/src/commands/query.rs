@@ -37,6 +37,8 @@ struct StateSubscribers {
     streams: Vec<Subscriber>,
 }
 
+const MAX_SUBSCRIBERS: usize = 64;
+
 #[derive(Default, Resource)]
 struct StateBroadcastCache {
     workspace: Option<WorkspaceBroadcastSnapshot>,
@@ -241,6 +243,15 @@ fn state_subscribe_handler(
         let Event::StateSubscribe { subscriber } = event else {
             continue;
         };
+        // Reclaim dead ports even on a quiet desktop, before applying the cap.
+        subscribers
+            .streams
+            .retain(|s| s.alive.load(Ordering::Relaxed) && s.channel.is_alive());
+        if subscribers.streams.len() >= MAX_SUBSCRIBERS {
+            // Dropping this send right closes the rejected subscription. Do not
+            // emit one log per attempt: a malformed local client can flood it.
+            continue;
+        }
         subscribers.streams.push(Subscriber {
             channel: subscriber.clone(),
             alive: Arc::new(AtomicBool::new(true)),
@@ -435,7 +446,7 @@ fn state_event_broadcast_handler(
     for subscriber in &subscribers.streams {
         for event in events.iter() {
             match subscriber.channel.try_send(event) {
-                Ok(()) => {}
+                Ok(()) | Err(wire::Error::WouldBlock) => {}
                 // The subscriber's process is gone; reaped on the next
                 // broadcast. This is a real signal from the kernel rather than
                 // a write error a merely slow reader would also produce.
@@ -456,6 +467,58 @@ mod tests {
     use super::*;
     use crate::ecs::state::{Frame, PaneruVirtualWorkspaceState, PaneruWindowState};
     use crate::events::Event as PaneruEvent;
+
+    #[test]
+    fn subscriptions_are_bounded_and_dead_clients_free_capacity() {
+        use crate::types::wire::SendPort;
+        use bevy::ecs::{message::Messages, world::World};
+        let name = format!("local.paneru.test.subscriber-limit.{}", std::process::id());
+        let receiver = wire::bind::<wire::Request>(&name).unwrap();
+        let sender = wire::connect::<wire::Request>(&name).unwrap();
+        let mut world = World::new();
+        world.init_resource::<Messages<Event>>();
+        world.init_resource::<StateSubscribers>();
+        let handler = world.register_system(state_subscribe_handler);
+        let mut clients = Vec::new();
+        for _ in 0..=MAX_SUBSCRIBERS {
+            let client = futures_lite::future::block_on(
+                sender.subscribe::<StateEvent>(&wire::Request::Subscribe),
+            )
+            .unwrap();
+            let subscriber = receiver.try_recv().unwrap().subscriber.unwrap();
+            world
+                .resource_mut::<Messages<Event>>()
+                .write(Event::StateSubscribe {
+                    subscriber: Arc::new(subscriber),
+                });
+            clients.push(client);
+        }
+        world.run_system(handler).unwrap();
+        assert_eq!(
+            world.resource::<StateSubscribers>().streams.len(),
+            MAX_SUBSCRIBERS
+        );
+        drop(clients.remove(0));
+        let client = futures_lite::future::block_on(
+            sender.subscribe::<StateEvent>(&wire::Request::Subscribe),
+        )
+        .unwrap();
+        let subscriber = receiver.try_recv().unwrap().subscriber.unwrap();
+        let subscriber = Arc::new(subscriber);
+        world
+            .resource_mut::<Messages<Event>>()
+            .write(Event::StateSubscribe {
+                subscriber: subscriber.clone(),
+            });
+        world.run_system(handler).unwrap();
+        let streams = &world.resource::<StateSubscribers>().streams;
+        assert_eq!(streams.len(), MAX_SUBSCRIBERS);
+        assert!(
+            streams.iter().any(|s| Arc::ptr_eq(&s.channel, &subscriber)),
+            "new client replaces a closed port even without broadcast traffic"
+        );
+        drop(client);
+    }
 
     fn query_state_with_active_window(
         window_id: WinID,

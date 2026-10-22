@@ -92,6 +92,7 @@ struct MockStateInner {
     /// Windows the app keeps out of its accessibility window list while the
     /// window server still reports them on screen: a background native tab.
     background_tabs: HashSet<WinID>,
+    native_tab_queries: (usize, usize),
 }
 
 #[derive(Clone)]
@@ -113,8 +114,13 @@ impl MockState {
                 stale_window_ids: HashMap::new(),
                 unordered_windows: HashSet::new(),
                 background_tabs: HashSet::new(),
+                native_tab_queries: (0, 0),
             })),
         }
+    }
+
+    pub fn native_tab_queries(&self) -> (usize, usize) {
+        self.inner.force_read().native_tab_queries
     }
 
     #[allow(dead_code)]
@@ -699,6 +705,7 @@ impl MockState {
 
         let (s, ids) = (self.clone(), window_ids.clone());
         ma.expect_ax_window_ids().returning(move || {
+            s.inner.force_write().native_tab_queries.1 += 1;
             let background = s.inner.force_read().background_tabs.clone();
             ids()
                 .into_iter()
@@ -794,6 +801,7 @@ impl MockState {
 
         let s = self.clone();
         wm.expect_windows_on_screen().returning(move || {
+            s.inner.force_write().native_tab_queries.0 += 1;
             let windows = s
                 .inner
                 .force_read()

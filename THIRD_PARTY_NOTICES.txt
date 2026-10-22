@@ -28,3 +28,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+async-mach-ports 0.3.0
+https://github.com/auscyber/async-mach-rs
+Upstream commit: 842a7245838248dfb2a08ba7a58436fcf6427764
+
+Locally patched transport source is retained in PaneruEngine/vendor/async-mach-ports.
+Its original MIT copyright and license are in that directory's LICENSE file;
+LOCAL_CHANGES.md records the security changes.

@@ -265,7 +265,7 @@ fn wait_for_accessibility(sender: EventSender, receiver: &Receiver<Event>) -> bo
             return true;
         }
 
-        match receiver.try_recv() {
+        match receiver.try_recv().map(Event::unwrap_ipc) {
             Ok(
                 Event::Exit
                 | Event::Command {

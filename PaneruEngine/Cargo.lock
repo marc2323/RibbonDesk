@@ -262,8 +262,6 @@ dependencies = [
 [[package]]
 name = "async-mach-ports"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa4c7c42e6a48cf62480fdb12cc87e01587d5c3c1bc24e86b21a09d8158cdd85"
 dependencies = [
  "bitflags",
  "futures-lite",

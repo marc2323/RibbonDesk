@@ -84,7 +84,7 @@ no original RibbonDesk runtime is needed.
 The desktop lifecycle checks are independent of desktop windows:
 
 ```sh
-xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Sources/Preferences.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
+xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Sources/Preferences.swift PaneruPreferences/Sources/PrivateLogs.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
 .build/desktop-policy-tests
 ```
 
@@ -98,3 +98,5 @@ outline checks and rendering wait until settling. The quiet period uses the
 existing event loop without adding a polling timer. It also hides during
 Mission Control, native fullscreen, or loss of a visible focused window.
 Rendering reuses one compact, display-clipped overlay per touched display.
+
+Engine logs are private files in `~/Library/Logs/Paneru`; unsafe links and file types are refused at startup. Builds do not restart the installed application.

@@ -81,22 +81,25 @@ enum Engine {
         let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let agent = directory.appendingPathComponent("com.github.karinushka.paneru.plist")
+        try PrivateLogs.prepare()
+        let logs = PrivateLogs.directory
         let definition: [String: Any] = [
             "Label": "com.github.karinushka.paneru", "Program": binary,
             "RunAtLoad": false, "KeepAlive": false, "ProcessType": "Interactive",
             "MachServices": ["com.github.karinushka.paneru": true],
             "EnvironmentVariables": ["XDG_CONFIG_HOME": PreferenceFiles.directory.deletingLastPathComponent().path,
                                      "RUST_LOG": "warn", "NO_COLOR": "1"],
-            "StandardErrorPath": "/tmp/com.github.karinushka.paneru_\(getuid()).err.log",
-            "StandardOutPath": "/tmp/com.github.karinushka.paneru_\(getuid()).out.log"
+            "StandardErrorPath": logs.appendingPathComponent("stderr.log").path,
+            "StandardOutPath": logs.appendingPathComponent("stdout.log").path
         ]
         let data = try PropertyListSerialization.data(fromPropertyList: definition, format: .xml, options: 0)
         try data.write(to: agent, options: .atomic)
         let loaded = try? run(["print", service], executable: "/bin/launchctl")
-        if let loaded, !loaded.contains("program = \(binary)") {
+        let matches = loaded.map { $0.contains("program = \(binary)") && $0.contains(logs.path) } ?? false
+        if loaded != nil && !matches {
             try run(["bootout", service], executable: "/bin/launchctl")
         }
-        if loaded == nil || loaded?.contains("program = \(binary)") != true {
+        if !matches {
             try run(["bootstrap", "gui/\(getuid())", agent.path], executable: "/bin/launchctl")
         }
         try run(["kickstart", service], executable: "/bin/launchctl")

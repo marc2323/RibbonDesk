@@ -120,8 +120,8 @@ fn run_exec_job(program: &str, args: &[String]) -> std::io::Result<ExecOutput> {
 /// hold up the rest.
 const DEFAULT_EXEC_WORKERS: usize = 4;
 
-/// The size of the `paneru.exec` worker pool: a fixed pool rather than a
-/// thread per call, sized like every other thread pool in the process — from
+/// The maximum size of the `paneru.exec` worker pool, sized like the other
+/// thread pools in the process — from
 /// the machine's available parallelism, the same figure bevy's task pools
 /// use. Falls back to [`DEFAULT_EXEC_WORKERS`] on the platforms and cgroup
 /// setups where that number is unavailable.
@@ -129,31 +129,90 @@ fn exec_workers() -> usize {
     std::thread::available_parallelism().map_or(DEFAULT_EXEC_WORKERS, std::num::NonZeroUsize::get)
 }
 
-/// Starts the pool that runs `paneru.exec` commands.
-///
-/// Jobs are taken from a shared queue, so two commands issued back to back
-/// can finish out of order — a script that needs ordering should await the
-/// first. Workers end when the returned sender is dropped (on reload), so a
-/// reload gets a fresh pool rather than the old script's queued work.
-fn spawn_exec_pool() -> async_channel::Sender<ExecJob> {
-    let (jobs, queue) = async_channel::unbounded::<ExecJob>();
-    for worker in 0..exec_workers() {
-        let queue = queue.clone();
-        let spawned = std::thread::Builder::new()
-            .name(format!("paneru-lua-exec-{worker}"))
-            .spawn(move || {
-                while let Ok(job) = queue.recv_blocking() {
-                    let output = run_exec_job(&job.program, &job.args);
-                    // The handler that asked may already be gone; its reply
-                    // channel closing is not an error worth reporting.
-                    let _ = job.reply.send_blocking(output);
-                }
-            });
-        if let Err(err) = spawned {
-            error!("could not start paneru.exec worker {worker}: {err}");
+/// A shared queue with on-demand workers. Keeping the sender out of worker
+/// closures lets a retired Lua runtime close and drain its pool normally.
+struct ExecPool {
+    jobs: crossbeam_channel::Sender<ExecJob>,
+    queue: crossbeam_channel::Receiver<ExecJob>,
+    counts: std::sync::Arc<std::sync::Mutex<ExecWorkers>>,
+    limit: usize,
+    idle_timeout: std::time::Duration,
+}
+
+#[derive(Default)]
+struct ExecWorkers {
+    total: usize,
+    outstanding: usize,
+}
+
+impl ExecPool {
+    fn new(limit: usize, idle_timeout: std::time::Duration) -> Self {
+        let (jobs, queue) = crossbeam_channel::unbounded();
+        Self {
+            jobs,
+            queue,
+            counts: std::sync::Arc::default(),
+            limit: limit.max(1),
+            idle_timeout,
         }
     }
-    jobs
+
+    fn submit(&self, job: ExecJob) -> std::io::Result<()> {
+        let mut counts = self
+            .counts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if counts.total < self.limit && counts.outstanding + 1 > counts.total {
+            let queue = self.queue.clone();
+            let shared = self.counts.clone();
+            let timeout = self.idle_timeout;
+            counts.total += 1;
+            let spawned = std::thread::Builder::new()
+                .name("paneru-lua-exec".to_owned())
+                .spawn(move || exec_worker(&queue, &shared, timeout));
+            if let Err(err) = spawned {
+                counts.total -= 1;
+                if counts.total == 0 {
+                    return Err(err);
+                }
+                error!("could not grow paneru.exec pool: {err}");
+            }
+        }
+        counts.outstanding += 1;
+        self.jobs
+            .send(job)
+            .map_err(|_| std::io::Error::other("exec worker is gone"))
+    }
+}
+
+fn exec_worker(
+    queue: &crossbeam_channel::Receiver<ExecJob>,
+    shared: &std::sync::Mutex<ExecWorkers>,
+    timeout: std::time::Duration,
+) {
+    loop {
+        let received = queue.recv_timeout(timeout);
+        let job = {
+            let mut counts = shared
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // A submit can race an idle timeout. Recheck while holding the same
+            // lock as submit so the last worker never strands queued work.
+            let job = received.or_else(|_| queue.try_recv());
+            if let Ok(job) = job {
+                job
+            } else {
+                counts.total -= 1;
+                return;
+            }
+        };
+        let output = run_exec_job(&job.program, &job.args);
+        let _ = job.reply.send_blocking(output);
+        let mut counts = shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        counts.outstanding -= 1;
+    }
 }
 
 /// How many times `paneru.state.mutate` may lose the compare-and-set race
@@ -220,12 +279,12 @@ pub(super) fn install(
     // would stop every other handler until the child exits.
     let exec = {
         // Started lazily on first use; only ever touched from the Lua thread.
-        let pool: Rc<RefCell<Option<async_channel::Sender<ExecJob>>>> = Rc::new(RefCell::new(None));
+        let pool = Rc::new(ExecPool::new(
+            exec_workers(),
+            std::time::Duration::from_secs(30),
+        ));
         lua.create_async_function(move |lua, (program, args): (String, Option<Vec<String>>)| {
-            let jobs = pool
-                .borrow_mut()
-                .get_or_insert_with(spawn_exec_pool)
-                .clone();
+            let jobs = Rc::clone(&pool);
             async move {
                 let (reply, answer) = async_channel::bounded(1);
                 let job = ExecJob {
@@ -233,8 +292,7 @@ pub(super) fn install(
                     args: args.unwrap_or_default(),
                     reply,
                 };
-                jobs.send(job)
-                    .await
+                jobs.submit(job)
                     .map_err(|_| mlua::Error::RuntimeError("exec worker is gone".to_string()))?;
                 let output = answer
                     .recv()
@@ -847,6 +905,111 @@ mod tests {
         padding::PaddingOptions,
         swipe::{GestureOptions, ScrollOptions, SwipeOptions},
     };
+
+    fn exec_job(
+        program: &str,
+        args: &[&str],
+    ) -> (
+        ExecJob,
+        async_channel::Receiver<std::io::Result<ExecOutput>>,
+    ) {
+        let (reply, answer) = async_channel::bounded(1);
+        (
+            ExecJob {
+                program: program.to_owned(),
+                args: args.iter().map(|s| (*s).to_owned()).collect(),
+                reply,
+            },
+            answer,
+        )
+    }
+
+    fn wait_for_retirement(pool: &ExecPool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while pool.counts.lock().unwrap().total != 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "idle workers did not retire"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn exec_pool_starts_on_demand_retires_and_regrows_without_losing_output() {
+        let pool = ExecPool::new(2, std::time::Duration::from_millis(20));
+        assert_eq!(pool.counts.lock().unwrap().total, 0);
+        for _ in 0..2 {
+            let (job, answer) = exec_job("/usr/bin/printf", &["preserved output"]);
+            pool.submit(job).unwrap();
+            let output = answer.recv_blocking().unwrap().unwrap();
+            assert_eq!(output.stdout, b"preserved output");
+            assert!(output.stderr.is_empty());
+            assert!(output.code.is_none_or(|code| code == 0));
+            wait_for_retirement(&pool);
+        }
+    }
+
+    #[test]
+    fn exec_pool_keeps_concurrency_ceiling_and_drains_after_owner_drops() {
+        let pool = ExecPool::new(2, std::time::Duration::from_secs(1));
+        let gate = std::env::temp_dir().join(format!(
+            "paneru-exec-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cleanup = scopeguard::guard(gate, |path| {
+            // Also release the slow child if an assertion fails.
+            let _ = std::fs::write(&path, b"ready");
+        });
+        let (slow, slow_answer) = exec_job(
+            "/bin/sh",
+            &[
+                "-c",
+                "while [ ! -f \"$1\" ]; do /bin/sleep 0.01; done",
+                "paneru-test",
+                cleanup.to_str().unwrap(),
+            ],
+        );
+        pool.submit(slow).unwrap();
+        let (fast, fast_answer) = exec_job("/usr/bin/printf", &["fast"]);
+        pool.submit(fast).unwrap();
+        assert_eq!(pool.counts.lock().unwrap().total, 2);
+        let mut remaining = Vec::new();
+        for _ in 0..8 {
+            let (job, answer) = exec_job("/usr/bin/printf", &["queued"]);
+            pool.submit(job).unwrap();
+            remaining.push(answer);
+        }
+        assert_eq!(pool.counts.lock().unwrap().total, 2);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let output = loop {
+            if let Ok(output) = fast_answer.try_recv() {
+                break output.unwrap();
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fast job stalled behind slow job"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+        assert_eq!(output.stdout, b"fast");
+        assert!(
+            slow_answer.is_empty(),
+            "a slow command must not hold up a concurrent fast command"
+        );
+        drop(pool);
+        std::fs::write(&*cleanup, b"ready").unwrap();
+        slow_answer.recv_blocking().unwrap().unwrap();
+        for answer in remaining {
+            assert_eq!(answer.recv_blocking().unwrap().unwrap().stdout, b"queued");
+        }
+        let path = scopeguard::ScopeGuard::into_inner(cleanup);
+        std::fs::remove_file(path).unwrap();
+    }
 
     /// Legacy top-level keys on `MainOptions` that have moved to dedicated
     /// `[padding]`, `[decorations]`, and `[swipe]` sub-tables.

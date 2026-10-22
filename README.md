@@ -77,6 +77,36 @@ changes left the running engine untouched. Launch at login was left enabled;
 the user's 0.35 speed, 4-point gap, and Mouse over mode were preserved. Login
 registration was checked without logging the user out.
 
+## Local hardening and efficiency
+
+Engine logs use `~/Library/Logs/Paneru` (directory `0700`, files `0600`).
+Both launch paths refuse symlinks, hard links and non-regular log files, and
+retain existing output. Legacy generated `/tmp` paths migrate on the next
+engine start; the currently running installation is not modified by a build.
+Generated window-rule comments flatten control characters from app metadata.
+
+IPC keeps its existing Mach service and MessagePack protocol. Requests use
+backpressure at 64 pending operations, subscriptions are limited to 64 live
+clients, and layout batches are limited to 4096 operations. The transport rejects
+payloads above 4 MiB before copying them, releases their resources, and uses
+nonblocking one-shot replies. Native input producers are independent of IPC
+admission. See `PaneruEngine/vendor/async-mach-ports/LOCAL_CHANGES.md` for the
+small local transport patch and upstream provenance.
+
+Native-tab recovery checks ECS geometry before native queries. Configuration
+getters avoid whole-options copies. The companion retains framework symbols
+and caches display mappings until screen changes, while live Space policy is
+still read at input time. Subprocess workers grow on demand to the same maximum
+concurrency as before and retire after 30 seconds idle.
+
+Additional isolated checks (no desktop/window manipulation):
+
+```sh
+cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.toml --all-targets
+xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Sources/Preferences.swift PaneruPreferences/Sources/PrivateLogs.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
+.build/desktop-policy-tests
+```
+
 ## Retired prototype
 
 The original RibbonDesk implementation, its fixtures, documentation and release

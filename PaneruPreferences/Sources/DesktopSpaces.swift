@@ -22,11 +22,7 @@ struct DesktopSpaces: Codable, Sendable {
 
     func isDisabled(at point: CGPoint, disabled: [String]) -> Bool {
         guard !disabled.isEmpty else { return false }
-        for screen in NSScreen.screens {
-            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-                  CGDisplayBounds(id.uint32Value).contains(point),
-                  let uuid = CGDisplayCreateUUIDFromDisplayID(id.uint32Value)?.takeRetainedValue() else { continue }
-            let display = CFUUIDCreateString(nil, uuid) as String
+        for (bounds, display) in DesktopDisplayMap.shared.entries where bounds.contains(point) {
             return spaces.contains { $0.visible && $0.displayUUID == display && disabled.contains($0.uuid) }
         }
         return isSuspended(disabled: disabled)
@@ -35,21 +31,12 @@ struct DesktopSpaces: Codable, Sendable {
     // Paneru's engine uses the same SkyLight API. UUIDs survive Space reordering
     // and login; numeric IDs are resolved again before each engine launch.
     static func read() -> DesktopSpaces {
-        guard let library = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY) else {
+        guard let api = DesktopSpaceAPI.shared else {
             return DesktopSpaces(spaces: [], currentUUID: nil)
         }
-        defer { dlclose(library) }
-        typealias MainConnection = @convention(c) () -> Int32
-        typealias CopySpaces = @convention(c) (Int32) -> Unmanaged<CFArray>?
-        typealias CopyActiveDisplay = @convention(c) (Int32) -> Unmanaged<CFString>?
-        guard let mainSymbol = dlsym(library, "SLSMainConnectionID"),
-              let spacesSymbol = dlsym(library, "SLSCopyManagedDisplaySpaces"),
-              let displaySymbol = dlsym(library, "SLSCopyActiveMenuBarDisplayIdentifier") else {
-            return DesktopSpaces(spaces: [], currentUUID: nil)
-        }
-        let connection = unsafeBitCast(mainSymbol, to: MainConnection.self)()
-        let activeDisplay = unsafeBitCast(displaySymbol, to: CopyActiveDisplay.self)(connection)?.takeRetainedValue() as String?
-        guard let raw = unsafeBitCast(spacesSymbol, to: CopySpaces.self)(connection)?.takeRetainedValue(),
+        let connection = api.mainConnection()
+        let activeDisplay = api.copyActiveDisplay(connection)?.takeRetainedValue() as String?
+        guard let raw = api.copySpaces(connection)?.takeRetainedValue(),
               let displays = raw as NSArray as? [[String: Any]] else {
             return DesktopSpaces(spaces: [], currentUUID: nil)
         }
@@ -75,6 +62,58 @@ struct DesktopSpaces: Codable, Sendable {
             }
         }
         return DesktopSpaces(spaces: result, currentUUID: currentUUID)
+    }
+}
+
+// Function pointers remain valid while the framework handle is retained. Live
+// Space state is still read at input time to protect desktop transitions.
+private final class DesktopSpaceAPI {
+    typealias MainConnection = @convention(c) () -> Int32
+    typealias CopySpaces = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    typealias CopyActiveDisplay = @convention(c) (Int32) -> Unmanaged<CFString>?
+    static let shared = DesktopSpaceAPI()
+    private let library: UnsafeMutableRawPointer
+    let mainConnection: MainConnection
+    let copySpaces: CopySpaces
+    let copyActiveDisplay: CopyActiveDisplay
+
+    private init?() {
+        guard let library = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY) else { return nil }
+        guard let main = dlsym(library, "SLSMainConnectionID"),
+              let spaces = dlsym(library, "SLSCopyManagedDisplaySpaces"),
+              let display = dlsym(library, "SLSCopyActiveMenuBarDisplayIdentifier") else {
+            dlclose(library)
+            return nil
+        }
+        self.library = library
+        mainConnection = unsafeBitCast(main, to: MainConnection.self)
+        copySpaces = unsafeBitCast(spaces, to: CopySpaces.self)
+        copyActiveDisplay = unsafeBitCast(display, to: CopyActiveDisplay.self)
+    }
+    deinit { dlclose(library) }
+}
+
+// This cache is used only by the main-run-loop event tap. Screen changes
+// invalidate geometry and UUIDs; active Space identity is never cached here.
+private final class DesktopDisplayMap {
+    static let shared = DesktopDisplayMap()
+    private var cached: [(CGRect, String)]?
+    private var observer: NSObjectProtocol?
+    private init() {
+        observer = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                         object: nil, queue: .main) { [weak self] _ in
+            self?.cached = nil
+        }
+    }
+    var entries: [(CGRect, String)] {
+        if let cached { return cached }
+        let result: [(CGRect, String)] = NSScreen.screens.compactMap { screen in
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+                  let uuid = CGDisplayCreateUUIDFromDisplayID(id.uint32Value)?.takeRetainedValue() else { return nil }
+            return (CGDisplayBounds(id.uint32Value), CFUUIDCreateString(nil, uuid) as String)
+        }
+        cached = result
+        return result
     }
 }
 

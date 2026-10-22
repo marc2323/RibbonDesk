@@ -11,7 +11,12 @@ use bevy::tasks::{IoTaskPool, TaskPool};
 use futures_lite::StreamExt;
 use std::sync::Arc;
 use std::thread;
-use tracing::{error, warn};
+use std::time::{Duration, Instant};
+use tracing::{debug, error, warn};
+
+const MAX_PENDING_IPC: usize = 64;
+const MAX_LAYOUT_OPERATIONS: usize = 4096;
+type IpcPermit = Arc<async_lock::SemaphoreGuardArc>;
 
 use crate::errors::Result;
 use crate::events::{Event, EventSender, Reply};
@@ -50,12 +55,27 @@ impl CommandReader {
             // handed to the IO pool rather than served inline.
             futures_lite::future::block_on(async move {
                 let mut requests = std::pin::pin!(receiver);
-                while let Some(delivery) = requests.next().await {
+                let limit = Arc::new(async_lock::Semaphore::new(MAX_PENDING_IPC));
+                let mut last_warning: Option<Instant> = None;
+                loop {
+                    // Stop receiving when full; Mach applies backpressure to
+                    // clients while native input keeps its independent channel.
+                    let permit = Arc::new(limit.acquire_arc().await);
+                    let Some(delivery) = requests.next().await else {
+                        break;
+                    };
                     match delivery {
-                        Ok(delivery) => self.dispatch(delivery),
+                        Ok(delivery) => self.dispatch(delivery, permit),
                         // A request that fails to decode is a bad client, not a
                         // reason to stop serving.
-                        Err(err) => warn!("reading request: {err}"),
+                        Err(err) => {
+                            if last_warning
+                                .is_none_or(|last| last.elapsed() >= Duration::from_secs(5))
+                            {
+                                warn!("reading request: {err} (further errors suppressed for 5s)");
+                                last_warning = Some(Instant::now());
+                            }
+                        }
                     }
                 }
             });
@@ -65,7 +85,7 @@ impl CommandReader {
     }
 
     /// Turns one request into an event, and arranges for its answer.
-    fn dispatch(&self, delivery: Delivery<Request>) {
+    fn dispatch(&self, delivery: Delivery<Request>, permit: IpcPermit) {
         let events = self.events.clone();
         let Delivery {
             value,
@@ -73,14 +93,22 @@ impl CommandReader {
             subscriber,
         } = delivery;
 
+        if matches!(&value,
+            Request::WindowSetApply(ops) | Request::Command(crate::commands::Command::Layout(ops))
+                if ops.len() > MAX_LAYOUT_OPERATIONS)
+        {
+            debug!("ignoring oversized layout operation batch");
+            return;
+        }
         match value {
             // Fire-and-forget: no reply is sent for this request.
             Request::Command(command) => {
-                send(&events, Event::Command { command });
+                send(&events, &permit, Event::Command { command });
             }
             Request::WindowSetApply(ops) => {
                 send(
                     &events,
+                    &permit,
                     Event::Command {
                         command: crate::commands::Command::Layout(ops),
                     },
@@ -88,28 +116,33 @@ impl CommandReader {
             }
 
             Request::Query(kind) => {
-                answer(events, reply, "state query", move |respond_to| {
+                answer(events, permit, reply, "state query", move |respond_to| {
                     Event::StateQuery { kind, respond_to }
                 });
             }
             Request::WindowSet => {
-                answer(events, reply, "window set query", |respond_to| {
+                answer(events, permit, reply, "window set query", |respond_to| {
                     Event::WindowSetQuery { respond_to }
                 });
             }
             Request::ScriptState(request) => {
-                answer(events, reply, "script state request", move |respond_to| {
-                    Event::ScriptState {
+                answer(
+                    events,
+                    permit,
+                    reply,
+                    "script state request",
+                    move |respond_to| Event::ScriptState {
                         request,
                         respond_to,
-                    }
-                });
+                    },
+                );
             }
 
             Request::Subscribe => {
                 if let Some(subscriber) = subscriber {
                     send(
                         &events,
+                        &permit,
                         Event::StateSubscribe {
                             subscriber: Arc::new(subscriber),
                         },
@@ -117,7 +150,7 @@ impl CommandReader {
                 } else {
                     // No channel to push events to; the sender built the
                     // request by hand and got it wrong.
-                    warn!("subscribe request carried no event channel");
+                    debug!("subscribe request carried no event channel");
                 }
             }
         }
@@ -125,9 +158,12 @@ impl CommandReader {
 }
 
 /// Sends an event that expects no answer.
-fn send(events: &EventSender, event: Event) {
+fn send(events: &EventSender, permit: &IpcPermit, event: Event) {
     _ = events
-        .send(event)
+        .send(Event::Ipc {
+            event: Box::new(event),
+            permit: Arc::clone(permit),
+        })
         .inspect_err(|err| error!("sending event: {err}"));
 }
 
@@ -140,18 +176,22 @@ fn send(events: &EventSender, event: Event) {
 /// closes, and `recv` resolves anyway.
 fn answer(
     events: EventSender,
+    permit: IpcPermit,
     reply: Option<MachReply>,
     what: &'static str,
     request: impl FnOnce(Reply) -> Event + Send + 'static,
 ) {
     let Some(reply) = reply else {
-        warn!("{what} arrived without a reply channel");
+        debug!("{what} arrived without a reply channel");
         return;
     };
 
     let (tx, rx) = async_channel::bounded(1);
     if events
-        .send(request(tx))
+        .send(Event::Ipc {
+            event: Box::new(request(tx)),
+            permit: Arc::clone(&permit),
+        })
         .inspect_err(|err| error!("sending {what}: {err}"))
         .is_err()
     {
@@ -162,16 +202,79 @@ fn answer(
     // so an early client would otherwise find no pool at all and panic.
     IoTaskPool::get_or_init(TaskPool::default)
         .spawn(async move {
+            let _permit = permit;
             match rx.recv().await {
                 Ok(response) => {
-                    if let Err(err) = reply.send(&response) {
-                        // A client that stopped waiting is normal — an
-                        // interrupted `paneru query` does exactly this.
-                        warn!("answering {what}: {err}");
+                    match reply.send(&response) {
+                        // Client exit and a deliberately full reply port must
+                        // neither block a worker nor flood the log.
+                        Ok(()) | Err(wire::Error::PeerGone | wire::Error::WouldBlock) => {}
+                        Err(err) => warn!("answering {what}: {err}"),
                     }
                 }
                 Err(err) => error!("waiting for {what} response: {err}"),
             }
         })
         .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ipc_backlog_is_bounded_without_blocking_native_events() {
+        let limit = Arc::new(async_lock::Semaphore::new(MAX_PENDING_IPC));
+        let (events, incoming) = EventSender::new();
+        for _ in 0..MAX_PENDING_IPC {
+            let permit = Arc::new(limit.try_acquire_arc().expect("capacity"));
+            send(
+                &events,
+                &permit,
+                Event::Command {
+                    command: crate::commands::Command::Quit,
+                },
+            );
+        }
+        assert!(limit.try_acquire_arc().is_none());
+        events.send(Event::ProcessesLoaded).unwrap();
+        let first = incoming.try_recv().unwrap().unwrap_ipc();
+        assert!(matches!(
+            first,
+            Event::Command {
+                command: crate::commands::Command::Quit
+            }
+        ));
+        assert!(
+            limit.try_acquire_arc().is_some(),
+            "processing returns IPC capacity"
+        );
+        for _ in 1..MAX_PENDING_IPC {
+            incoming.try_recv().unwrap();
+        }
+        assert!(matches!(
+            incoming.try_recv().unwrap(),
+            Event::ProcessesLoaded
+        ));
+    }
+
+    #[test]
+    fn oversized_layout_batch_is_rejected_before_entering_the_event_queue() {
+        let (events, incoming) = EventSender::new();
+        let reader = CommandReader::new(events);
+        let limit = Arc::new(async_lock::Semaphore::new(1));
+        reader.dispatch(
+            Delivery {
+                value: Request::WindowSetApply(vec![
+                    crate::types::windowset::LayoutOp::Focus(7);
+                    MAX_LAYOUT_OPERATIONS + 1
+                ]),
+                reply: None,
+                subscriber: None,
+            },
+            Arc::new(limit.try_acquire_arc().unwrap()),
+        );
+        assert!(incoming.try_recv().is_err());
+        assert!(limit.try_acquire_arc().is_some());
+    }
 }

@@ -173,7 +173,18 @@ fn identity_comment(subject: &RuleSubject<'_>) -> String {
     } else {
         subject.subrole
     };
+    // Metadata comes from other applications. A newline must never turn part
+    // of this comment into executable Lua or active TOML configuration.
     format!("app: {name}  role: {role}  subrole: {subrole}")
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -289,5 +300,31 @@ mod tests {
         assert_eq!(rule_key("7-Zip"), "seven_zip");
         assert_eq!(rule_key("  —  "), "window");
         assert_eq!(rule_key(""), "window");
+    }
+
+    #[test]
+    fn metadata_cannot_escape_generated_comments() {
+        for field in 0..3 {
+            let attack = "App\r\n    injected = (function() injected = true end)(), --\u{2028}\0";
+            let mut subject = subject("App", "com.test", "title");
+            match field {
+                0 => subject.app_name = attack,
+                1 => subject.role = attack,
+                _ => subject.subrole = attack,
+            }
+            let toml = window_rule_snippet(SnippetDialect::Toml, &subject);
+            let parsed = InnerConfig::new(&toml).expect("hostile metadata stays a TOML comment");
+            assert_eq!(parsed.windows.expect("windows").len(), 1);
+            assert!(!toml.contains('\r') && !toml.contains('\0'));
+            #[cfg(feature = "lua")]
+            {
+                let lua = mlua::Lua::new();
+                lua.globals().set("injected", false).unwrap();
+                lua.load(window_rule_snippet(SnippetDialect::Lua, &subject))
+                    .exec()
+                    .expect("hostile metadata stays a Lua comment");
+                assert!(!lua.globals().get::<bool>("injected").unwrap());
+            }
+        }
     }
 }
