@@ -142,3 +142,7 @@ mockall = "0.15"
 
 [build-dependencies]
 cfg-if = "1.0"
+
+# Local transport hardening; upstream provenance and patch scope are in vendor/.
+[patch.crates-io]
+async-mach-ports = { path = "vendor/async-mach-ports" }

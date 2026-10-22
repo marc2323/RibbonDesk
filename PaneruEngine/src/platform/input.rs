@@ -353,7 +353,7 @@ impl InputHandler {
             return false;
         }
 
-        if crate::manager::disabled_space_is_visible(&self.config.disabled_spaces()) {
+        if self.config.disabled_space_is_visible() {
             // Pass every event to macOS, including configured hotkeys and
             // strip gestures, even during the engine's shutdown interval.
             self.finger_position = None;

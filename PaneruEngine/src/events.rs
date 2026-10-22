@@ -50,6 +50,12 @@ pub struct InputEvent(pub Event);
 #[cfg_attr(not(feature = "lua"), allow(dead_code))]
 #[derive(Clone, Debug, Message)]
 pub enum Event {
+    /// A transport-only envelope. The pump unwraps it before publishing the
+    /// event; the permit bounds IPC backlog without blocking native producers.
+    Ipc {
+        event: Box<Event>,
+        permit: Arc<async_lock::SemaphoreGuardArc>,
+    },
     /// Signals the application to exit.
     Exit,
     /// Indicates that the initial set of processes has been loaded.
@@ -236,6 +242,16 @@ pub struct EventSender {
 }
 
 impl Event {
+    pub(crate) fn unwrap_ipc(self) -> Self {
+        match self {
+            Self::Ipc { event, permit } => {
+                drop(permit);
+                *event
+            }
+            event => event,
+        }
+    }
+
     /// Whether this is one of the pointer or gesture events republished on
     /// [`InputEvent`].
     pub fn is_input(&self) -> bool {

@@ -1210,6 +1210,26 @@ fn test_focus_recovers_when_focused_window_is_outside_strip() {
 /// back into the column of the tab that is showing, so the strip stops holding
 /// a slot nothing can ever appear in.
 #[test]
+fn native_tab_recovery_skips_native_queries_without_matching_geometry() {
+    use bevy::ecs::system::RunSystemOnce as _;
+    let mut harness = TestHarness::new().with_windows(3);
+    for _ in 0..3 {
+        harness.app.update();
+    }
+    let before = harness.mock_state.native_tab_queries();
+    harness
+        .app
+        .world_mut()
+        .run_system_once(crate::ecs::systems::regroup_stray_native_tabs)
+        .unwrap();
+    assert_eq!(
+        harness.mock_state.native_tab_queries(),
+        before,
+        "ordinary separate columns need no WindowServer or AX lookup"
+    );
+}
+
+#[test]
 fn test_stray_background_tab_is_folded_into_the_visible_tab() {
     use bevy::ecs::system::RunSystemOnce as _;
 

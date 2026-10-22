@@ -1,6 +1,6 @@
 use bevy::app::AppExit;
 use bevy::ecs::change_detection::DetectChangesMut;
-use bevy::ecs::entity::{Entity, EntityHashMap};
+use bevy::ecs::entity::{Entity, EntityHashMap, EntityHashSet};
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::query::{Added, Changed, Has, Or, With, Without};
@@ -737,7 +737,7 @@ pub(crate) fn pump_events(
             Err(TryRecvError::Disconnected) => Err(RecvTimeoutError::Disconnected),
             Ok(event) => Ok(event),
         };
-        match received {
+        match received.map(Event::unwrap_ipc) {
             Ok(Event::Exit) | Err(RecvTimeoutError::Disconnected) => {
                 exit.write(AppExit::Success);
                 return;
@@ -1381,10 +1381,6 @@ pub(crate) fn regroup_stray_native_tabs(
     else {
         return;
     };
-    let Some(on_screen) = window_manager.windows_on_screen() else {
-        return;
-    };
-
     // Column tops only: a window sharing a column is already grouped, and
     // stacked siblings never share a frame.
     let tops = strip.all_columns();
@@ -1397,29 +1393,56 @@ pub(crate) fn regroup_stray_native_tabs(
             Column::Stack(_) | Column::Tabs(_) | Column::Fullscren(_) => None,
         })
         .collect::<Vec<_>>();
-    // One accessibility round trip per app, not per window: this runs on a timer
-    // and the call crosses into the app.
-    let mut ax_windows: EntityHashMap<Vec<WinID>> = EntityHashMap::default();
     let columns = tops
         .into_iter()
         .filter_map(|entity| windows.get(entity).ok())
-        .map(
-            |(entity, window, Position(position), Bounds(bounds), child)| {
-                let app = child.parent();
-                let ax_window_ids = ax_windows.entry(app).or_insert_with(|| {
-                    apps.get(app)
-                        .map(|app| app.ax_window_ids())
-                        .unwrap_or_default()
-                });
-                (
-                    entity,
-                    app_shows_window(ax_window_ids, &on_screen, window.id()),
-                    *position,
-                    *bounds,
-                    app,
-                )
-            },
-        )
+        .map(|(entity, window, position, bounds, child)| {
+            (entity, window.id(), position.0, bounds.0, child.parent())
+        })
+        .collect::<Vec<_>>();
+    // Most workspaces have no possible stray. Filter entirely from ECS data
+    // before asking WindowServer or any application's Accessibility server.
+    let candidate_apps: EntityHashSet = columns
+        .iter()
+        .filter(|(entity, _, position, bounds, app)| {
+            strays.contains(entity)
+                && columns
+                    .iter()
+                    .any(|(other, _, other_position, other_bounds, other_app)| {
+                        other != entity
+                            && other_app == app
+                            && other_position.chebyshev_distance(*position) <= 1
+                            && other_bounds.chebyshev_distance(*bounds) <= 1
+                    })
+        })
+        .map(|(_, _, _, _, app)| *app)
+        .collect();
+    if candidate_apps.is_empty() {
+        return;
+    }
+    let Some(on_screen) = window_manager.windows_on_screen() else {
+        return;
+    };
+    // One accessibility round trip per app, not per window: this runs on a timer
+    // and the call crosses into the app.
+    let mut ax_windows: EntityHashMap<Vec<WinID>> = EntityHashMap::default();
+    let columns = columns
+        .into_iter()
+        .filter(|(_, _, _, _, app)| candidate_apps.contains(app))
+        .map(|(entity, window_id, position, bounds, app)| {
+            let ax_window_ids = ax_windows.entry(app).or_insert_with(|| {
+                apps.get(app)
+                    .map(|app| app.ax_window_ids())
+                    .unwrap_or_default()
+            });
+            (
+                entity,
+                app_shows_window(ax_window_ids, &on_screen, window_id),
+                position,
+                bounds,
+                app,
+            )
+        })
         .collect::<Vec<_>>();
 
     let mut regrouped = Vec::new();
