@@ -74,8 +74,6 @@ config.windows.default.horizontal_padding = math.floor(gap / 2)
 config.windows.preferences = {
     title = ".*", bundle_id = "local.paneru.preferences", floating = true,
 }
--- An interrupted settings refresh cannot leave calibration armed on relaunch.
-paneru.state.set("paneru.calibrating_layout", false)
 paneru.setup(config)
 
 -- Keep every global shortcut on the same Control + Option modifier.

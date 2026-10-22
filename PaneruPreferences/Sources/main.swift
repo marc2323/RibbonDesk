@@ -104,7 +104,10 @@ enum Engine {
     }
 
     static func start() throws {
-        guard !isRunning() else { return }
+        if isRunning() {
+            _ = try? run(["state", "set", "paneru.calibrating_layout", "false"])
+            return
+        }
         let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let agent = directory.appendingPathComponent("com.github.karinushka.paneru.plist")
@@ -129,7 +132,10 @@ enum Engine {
         try run(["kickstart", service], executable: "/bin/launchctl")
         Thread.sleep(forTimeInterval: 0.5)
         for _ in 0..<12 {
-            if (try? run(["query", "active", "--json"], timeout: 2)) != nil { return }
+            if (try? run(["query", "active", "--json"], timeout: 2)) != nil {
+                _ = try? run(["state", "set", "paneru.calibrating_layout", "false"])
+                return
+            }
             Thread.sleep(forTimeInterval: 0.2)
         }
         throw CommandFailure(message: "Paneru could not start. Check its Accessibility permission.")
