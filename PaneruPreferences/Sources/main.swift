@@ -10,12 +10,14 @@ struct Preferences: Codable, Equatable, Sendable {
     var speed: Double
     var gap: Int
     var focusMode: FocusMode = .hover
+    var launchAtLogin: Bool = false
     static let defaults = Preferences(speed: 0.65, gap: 6)
 
-    init(speed: Double, gap: Int, focusMode: FocusMode = .hover) {
+    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false) {
         self.speed = speed
         self.gap = gap
         self.focusMode = focusMode
+        self.launchAtLogin = launchAtLogin
     }
 
     init(from decoder: Decoder) throws {
@@ -24,12 +26,13 @@ struct Preferences: Codable, Equatable, Sendable {
         gap = try values.decode(Int.self, forKey: .gap)
         // Existing installations have only speed and gap. Preserve both values.
         focusMode = try values.decodeIfPresent(FocusMode.self, forKey: .focusMode) ?? .hover
+        launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
     }
 
     var validated: Preferences {
         Preferences(speed: speed.isFinite ? min(1.5, max(0.2, speed)) : 0.65,
                     gap: Int((Double(min(24, max(0, gap))) / 2).rounded()) * 2,
-                    focusMode: focusMode)
+                    focusMode: focusMode, launchAtLogin: launchAtLogin)
     }
 }
 
@@ -70,7 +73,7 @@ struct CommandFailure: LocalizedError {
 }
 
 enum Engine {
-    static let binary = "/opt/homebrew/bin/paneru"
+    static let binary = Bundle.main.url(forAuxiliaryExecutable: "paneru")?.path ?? "/opt/homebrew/bin/paneru"
     static let service = "gui/\(getuid())/com.github.karinushka.paneru"
 
     @discardableResult
@@ -101,8 +104,29 @@ enum Engine {
     }
 
     static func start() throws {
-        try run(["start"])
-        if !isRunning() { try run(["start"]) }
+        guard !isRunning() else { return }
+        let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let agent = directory.appendingPathComponent("com.github.karinushka.paneru.plist")
+        let definition: [String: Any] = [
+            "Label": "com.github.karinushka.paneru", "Program": binary,
+            "RunAtLoad": false, "KeepAlive": false, "ProcessType": "Interactive",
+            "MachServices": ["com.github.karinushka.paneru": true],
+            "EnvironmentVariables": ["XDG_CONFIG_HOME": PreferenceFiles.directory.deletingLastPathComponent().path,
+                                     "RUST_LOG": "warn", "NO_COLOR": "1"],
+            "StandardErrorPath": "/tmp/com.github.karinushka.paneru_\(getuid()).err.log",
+            "StandardOutPath": "/tmp/com.github.karinushka.paneru_\(getuid()).out.log"
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: definition, format: .xml, options: 0)
+        try data.write(to: agent, options: .atomic)
+        let loaded = try? run(["print", service], executable: "/bin/launchctl")
+        if let loaded, !loaded.contains("program = \(binary)") {
+            try run(["bootout", service], executable: "/bin/launchctl")
+        }
+        if loaded == nil || loaded?.contains("program = \(binary)") != true {
+            try run(["bootstrap", "gui/\(getuid())", agent.path], executable: "/bin/launchctl")
+        }
+        try run(["kickstart", service], executable: "/bin/launchctl")
         Thread.sleep(forTimeInterval: 0.5)
         for _ in 0..<12 {
             if (try? run(["query", "active", "--json"], timeout: 2)) != nil { return }
@@ -130,8 +154,10 @@ enum Engine {
               let windows = active["windows"] as? [[String: Any]] else { return }
         let count = windows.filter { $0["floating"] as? Bool != true }.count
         guard count > 0 else { return }
-        // Focus through this desktop only. The Lua handler applies each column's
-        // half/full preset against its usable viewport after padding changes.
+        try run(["state", "set", "paneru.calibrating_layout", "true"])
+        defer { _ = try? run(["state", "set", "paneru.calibrating_layout", "false"]) }
+        // This explicit gap refresh is the only focus-driven width calibration.
+        // Ordinary hover and application activation never resize columns.
         for index in 1...min(count, 50) {
             try run(["send-cmd", "window", "focus", String(index)])
             Thread.sleep(forTimeInterval: 0.12)
@@ -146,13 +172,9 @@ enum Engine {
                 try stop()
                 try start()
                 try normalizeActiveWorkspace()
-            } else {
+            } else if preferences.speed != previous.speed || preferences.focusMode != previous.focusMode {
                 try PreferenceFiles.reload()
                 Thread.sleep(forTimeInterval: 0.25)
-            }
-            if wasRunning {
-                // Keep the existing speed state in sync for older local helpers.
-                try run(["state", "set", "ribbondesk.scroll_speed", String(preferences.speed)])
             }
             return wasRunning
         } catch {
@@ -169,6 +191,8 @@ final class SettingsModel: ObservableObject {
     @Published var speed: Double
     @Published var gap: Double
     @Published var focusMode: FocusMode
+    @Published var launchAtLogin: Bool
+    @Published var loginApprovalRequired = LoginItem.requiresApproval
     @Published var accessibilityGranted = ActivationClickGuard.isAuthorized
     @Published var applying = false
     @Published var message = "Changes apply when you choose Save."
@@ -179,28 +203,33 @@ final class SettingsModel: ObservableObject {
     var didApply: (() -> Void)?
 
     init() {
-        let preferences = PreferenceFiles.read()
+        var preferences = PreferenceFiles.read()
+        preferences.launchAtLogin = LoginItem.enabled
         saved = preferences
         speed = preferences.speed
         gap = Double(preferences.gap)
         focusMode = preferences.focusMode
+        launchAtLogin = preferences.launchAtLogin
         do { try clickGuard.configure(for: focusMode) }
         catch { failed = true; message = error.localizedDescription }
     }
 
-    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode).validated }
+    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode, launchAtLogin: launchAtLogin).validated }
     var changed: Bool { draft != saved }
 
     func refresh() {
         accessibilityGranted = ActivationClickGuard.isAuthorized
         guard !applying else { return }
-        let current = PreferenceFiles.read()
+        var current = PreferenceFiles.read()
+        current.launchAtLogin = LoginItem.enabled
+        loginApprovalRequired = LoginItem.requiresApproval
         // Retain an unsaved choice while the user grants Accessibility in Settings.
         if current != saved {
             saved = current
             speed = saved.speed
             gap = Double(saved.gap)
             focusMode = saved.focusMode
+            launchAtLogin = saved.launchAtLogin
         }
         do { try clickGuard.configure(for: current.focusMode) }
         catch { failed = true; message = error.localizedDescription }
@@ -210,6 +239,7 @@ final class SettingsModel: ObservableObject {
         speed = Preferences.defaults.speed
         gap = Double(Preferences.defaults.gap)
         focusMode = Preferences.defaults.focusMode
+        launchAtLogin = Preferences.defaults.launchAtLogin
         message = "Defaults selected. Choose Save to apply."
         failed = false
     }
@@ -232,14 +262,19 @@ final class SettingsModel: ObservableObject {
         message = next.gap == previous.gap ? "Saving…" : "Refreshing the window layout…"
         Task {
             do {
+                try LoginItem.setEnabled(next.launchAtLogin)
                 let running = try await Task.detached { try Engine.apply(next, previous: previous) }.value
                 if next.focusMode == .hover { try clickGuard.configure(for: .hover) }
                 saved = next
                 speed = next.speed
                 gap = Double(next.gap)
                 focusMode = next.focusMode
+                launchAtLogin = next.launchAtLogin
+                loginApprovalRequired = LoginItem.requiresApproval
                 message = running ? "Saved. Your settings are active." : "Saved for the next time Paneru starts."
+                if loginApprovalRequired { message = "Saved. Approve Paneru Settings in Login Items to launch at login." }
             } catch {
+                try? LoginItem.setEnabled(previous.launchAtLogin)
                 try? clickGuard.configure(for: previous.focusMode)
                 failed = true
                 message = "Couldn’t apply settings. Previous settings restored."
@@ -261,11 +296,9 @@ struct Panes: Shape {
         var path = Path()
         let scale = min(rect.width / 22, rect.height / 20)
         let origin = CGPoint(x: rect.midX - 11 * scale, y: rect.midY - 10 * scale)
-        for (x, y) in [(2.0, 5.0), (12.0, 2.0)] {
-            let frame = CGRect(x: origin.x + x * scale, y: origin.y + y * scale, width: 8 * scale, height: 13 * scale)
-            path.addRoundedRect(in: frame, cornerSize: CGSize(width: 1.8 * scale, height: 1.8 * scale))
-            path.move(to: CGPoint(x: frame.minX, y: frame.minY + 3.4 * scale))
-            path.addLine(to: CGPoint(x: frame.maxX, y: frame.minY + 3.4 * scale))
+        for x in [2.0, 9.0, 16.0] {
+            let frame = CGRect(x: origin.x + x * scale, y: origin.y + 3 * scale, width: 4 * scale, height: 14 * scale)
+            path.addRoundedRect(in: frame, cornerSize: CGSize(width: scale, height: scale))
         }
         return path
     }
@@ -319,6 +352,18 @@ struct SettingsView: View {
                     }
                 }.padding(10).background(.background, in: RoundedRectangle(cornerRadius: 9))
 
+                Toggle(isOn: $model.launchAtLogin) {
+                    HStack(spacing: 6) {
+                        Text("Launch at login").font(.system(size: 12, weight: .medium))
+                        Text("Paneru + menu bar").font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                }.toggleStyle(.switch).controlSize(.mini)
+                    .accessibilityLabel("Launch at login")
+                    .accessibilityHint("Starts Paneru and the menu-bar app automatically when you log in.")
+                if model.loginApprovalRequired {
+                    Button("Approve in Login Items…", action: LoginItem.openSettings)
+                }
+
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
                         Text("Scroll speed").frame(width: 78, alignment: .leading)
@@ -357,7 +402,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Text("Three fingers: windows · Two fingers: apps")
+                Text("Scroll position stays put until you click a window.")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }.padding(12)
             Divider()
@@ -386,16 +431,11 @@ enum Icon {
     static func drawPanes(in rect: NSRect, color: NSColor, lineWidth: CGFloat) {
         color.setStroke()
         let sx = rect.width / 22, sy = rect.height / 20
-        for (x, y) in [(2.0, 2.0), (12.0, 5.0)] {
-            let frame = NSRect(x: rect.minX + x * sx, y: rect.minY + y * sy, width: 8 * sx, height: 13 * sy)
-            let path = NSBezierPath(roundedRect: frame, xRadius: 1.8 * sx, yRadius: 1.8 * sy)
+        for x in [2.0, 9.0, 16.0] {
+            let frame = NSRect(x: rect.minX + x * sx, y: rect.minY + 3 * sy, width: 4 * sx, height: 14 * sy)
+            let path = NSBezierPath(roundedRect: frame, xRadius: sx, yRadius: sy)
             path.lineWidth = lineWidth
             path.stroke()
-            let title = NSBezierPath()
-            title.move(to: NSPoint(x: frame.minX, y: frame.maxY - 3.4 * sy))
-            title.line(to: NSPoint(x: frame.maxX, y: frame.maxY - 3.4 * sy))
-            title.lineWidth = lineWidth
-            title.stroke()
         }
     }
 
@@ -420,7 +460,7 @@ enum Icon {
                     NSColor(calibratedRed: 0.20, green: 0.53, blue: 0.62, alpha: 1).setFill()
                     NSBezierPath(roundedRect: rect.insetBy(dx: rect.width * 0.04, dy: rect.height * 0.04),
                                  xRadius: rect.width * 0.22, yRadius: rect.height * 0.22).fill()
-                    drawPanes(in: rect.insetBy(dx: rect.width * 0.19, dy: rect.height * 0.19), color: .white, lineWidth: rect.width * 0.043)
+                    drawPanes(in: rect.insetBy(dx: rect.width * 0.19, dy: rect.height * 0.19), color: .white, lineWidth: rect.width * 0.025)
                     return true
                 }
                 let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
@@ -486,7 +526,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         contextMenu.addItem(menuItem("Restart Paneru", action: #selector(restartEngine)))
         contextMenu.addItem(.separator())
         contextMenu.addItem(menuItem("Quit Paneru", action: #selector(quitAll)))
-        if !CommandLine.arguments.contains("--background") { openSettings() }
+        if !CommandLine.arguments.contains("--background") && !LoginItem.launchedAtLogin { openSettings() }
+        Task {
+            do { try await Task.detached { try Engine.start() }.value }
+            catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
+        }
     }
 
     private func menuItem(_ title: String, action: Selector) -> NSMenuItem {

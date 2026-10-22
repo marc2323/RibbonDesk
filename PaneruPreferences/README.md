@@ -1,93 +1,61 @@
 # Paneru Settings
 
-A local native preferences companion for the installed Paneru 0.5.2 engine.
-It provides one template menu-bar icon, a SwiftUI settings popover, saved scroll
-speed, gap, and activation controls, and a Control–Option shortcut layout. RibbonDesk stays
-closed. The Homebrew Paneru executable and its Accessibility authorization are
-unchanged.
+A native SwiftUI/AppKit menu-bar app for the bundled Paneru engine. Click the
+three-window icon, or press Control–Option–S, to open its compact dropdown.
+Click outside or the icon again to dismiss it. Right-click the icon for pause,
+restart, and quit controls.
 
-The installed app is `~/Applications/Paneru Settings.app`. The existing
-`~/Applications/Paneru.app` launcher starts the engine and the preferences icon.
-Click the two-pane icon to open the settings dropdown, or press Control–Option–S.
-Click the icon again, click outside, or press Escape to dismiss it. The popover
-stays attached to the icon and cannot be detached into a separate window.
-Right-click the icon for pause, restart, and quit controls.
-The shortcut reference is always expanded. The compact popover fits its controls,
-all nine shortcut rows, and the Save button without a scrolling area. The speed
-and gap sliders share a compact group; hovering over either slider shows its hint.
+## Settings
 
-**Activate windows** offers two modes:
+- **Mouse over:** hovering activates windows. It never releases a scroll-position hold.
+- **Click:** the first click activates an inactive application window; a subsequent
+  click interacts with it. Background app scrolling is blocked until activation.
+  This mode needs Accessibility authorization for Paneru Settings.
+- **Launch at login:** starts the companion and bundled engine at login using
+  macOS Service Management. Choose Save after changing it. If macOS requires
+  approval, use the displayed Login Items button.
+- **Scroll speed:** 0.20–1.50, in 0.05 steps.
+- **Window gap:** 0–24 points, in 2-point steps. A gap change briefly refreshes the layout.
 
-- **Mouse over:** Paneru activates windows when the pointer moves over them.
-- **Click:** Paneru's hover focus is disabled. A local event tap consumes the
-  first click on an inactive application window and activates it; the next click
-  interacts with the window. The activation click's mouse-up and drag are also
-  consumed. Ordinary scrolling over inactive windows is blocked until activation.
-  Menus, the desktop, system UI, and this settings popover keep normal behavior.
+Save applies settings; Reset Defaults selects the default values for review.
+The full shortcut reference is always visible and has no scrolling area.
 
-Choose a mode and **Save**. Click mode needs Accessibility authorization for
-**Paneru Settings** itself, in addition to the engine's existing authorization.
-Use **Allow Click Mode…**, enable it in System Settings → Privacy & Security →
-Accessibility, then return and save. Click mode is not saved if permission or
-the event tap is unavailable. Switching to Mouse over removes the event tap.
-The guard uses public Accessibility and Core Graphics APIs and runs locally.
-The Homebrew Paneru executable remains unchanged.
+## Shortcuts
 
-Settings live in `~/.config/paneru/preferences.json` and `preferences.lua`.
-`init.lua` reads the Lua values on load. Speed and focus changes reload the configuration;
-gap changes briefly restart Paneru because 0.5.2 applies per-window padding only
-when a window is admitted. The current desktop's columns are normalized after
-the refresh. The popover stays visible while settings are being saved.
-Existing preference files without a focus mode retain their speed and gap and
-default to Mouse over. Unsaved choices survive dismissing the popover so a mode
-selection is retained while granting Accessibility.
+Hold **Control + Option**:
 
-| Control–Option + | Action |
+| Key | Action |
 | --- | --- |
-| H / L, or left / right | Previous / next window |
+| H / L or left / right arrow | Previous / next window |
 | J / K | Move window left / right |
-| 2 / 0 | Half / full usable width |
-| R | Toggle half / full |
-| F | Full usable width |
+| 2 | Half width |
+| 0 / F | Full width |
+| R | Toggle half / full width |
 | T | Toggle floating |
 | Home / End | First / last window |
-| S | Settings |
+| S | Open settings |
 | Q | Pause window management |
 
-Build with `zsh PaneruPreferences/build.sh` from the RibbonDesk directory. It uses
-the installed Swift compiler and native frameworks, and the configured local
-signing certificate when available. Output is in `.build/paneru-preferences/`.
-The source configuration is `paneru-init.lua`; the active copy is in the user's
-Paneru config directory. Previous config and launcher files are retained under
-`~/.config/paneru/backups/settings-panel-*`.
+Focus commands preserve a held viewport until a window click. Three-finger
+horizontal gestures scroll the strip; ordinary two-finger gestures scroll apps.
 
-Native validation on 2026-10-21 covered both sliders, saving speed and gap,
-returning focus to the settings controls after layout refresh, and preservation of
-the final 0.20 speed and 6-point gap. Two visible half-width columns retained
-928-point slots; WindowServer reported 922-point windows separated by 6 points.
-All 15 registered chords have only Control and Option modifiers. Remote
-synthetic key events do not exercise Paneru's physical modifier decoding.
+## Runtime and build
 
-The popover update was built, signed, and installed on 2026-10-21. Native
-accessibility inspection identified the UI as a popover with both sliders and
-the Save control. Saving speed at 0.25 and then restoring 0.20 succeeded inside
-the popover; its native Cancel action dismissed it. The gap stayed at 6 points
-and the Paneru engine kept running throughout the update.
+The installed bundle is `~/Applications/Paneru Settings.app`. Its helper engine
+is `Contents/MacOS/paneru`; the original Homebrew executable is retained as a
+fallback. The companion starts the helper through the
+`com.github.karinushka.paneru` on-demand LaunchAgent. There is one engine instance.
+Login launches stay quiet in the menu bar.
 
-The activation update preserved the user's newer 0.35 speed and 4-point gap.
-Legacy JSON migration, both focus-mode serialization round trips, and value
-bounds passed. Both modes saved successfully and wrote the expected Lua hover
-flag. After the user granted Accessibility, a temporary button-counter app was
-used with input diagnostics: the activation-required mouse-down was consumed,
-and the subsequent click incremented the button once. The automation tool sends
-an activation click before its target click. Test windows were closed, their
-temporary floating rule was removed, and diagnostics were disabled. Click mode was
-left active. The shortcut list has no disclosure control and remains expanded.
+Settings live in `~/.config/paneru/preferences.json` and `preferences.lua`.
+`paneru-init.lua` is the source of the installed `init.lua`. Speed and focus
+changes reload configuration; changing only login registration does not disturb
+the engine. Width calibration runs for new windows and explicit gap refreshes,
+never during ordinary hover or activation. Existing preference files migrate
+without resetting their speed, gap, or focus mode.
 
-Version 1.3 removes the scrolling area and the large gap preview, tightens the
-control rows, and sizes the popover to its content. The reference now includes
-all 15 registered chords, including the arrow-key alternatives and F for full
-width. Native inspection confirmed all controls and shortcut rows were visible
-together without a scroll area or scrollbar. The speed slider and focus picker
-were exercised without saving, leaving the user's current Mouse over mode,
-0.35 speed, and 4-point gap unchanged.
+Build the engine with `zsh PaneruEngine/build.sh`, then the companion with
+`zsh PaneruPreferences/build.sh`, or run `zsh PaneruPreferences/install.sh` for both.
+Builds use the configured local signing identity without changing certificate
+trust. Signing scripts and public identity selection now belong to this app;
+no original RibbonDesk runtime is needed.

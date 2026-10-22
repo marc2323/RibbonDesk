@@ -1,11 +1,11 @@
-Paneru implementation reference
+Paneru engine
 https://github.com/karinushka/paneru
-Reviewed revision: 12c58b2225a40e434053ea9343a41e2012466f9a
+Upstream tag: v0.5.2
+Upstream commit: b1b6abbd3f1a4be138152b6f0389c9ff1b27a269
 
-RibbonDesk's AppKit gesture handling, Mission Control observation, and temporary
-AXEnhancedUserInterface animation flag handling were informed by Paneru's macOS
-implementation. RibbonDesk contains its own Swift implementation, with no Paneru
-Rust binary or Bevy runtime. The upstream notice is retained below.
+PaneruEngine contains the upstream engine with local viewport-hold changes.
+Its MIT license and original copyright are retained below and in
+PaneruEngine/LICENSE.txt. The native settings companion is maintained locally.
 
 MIT License
 

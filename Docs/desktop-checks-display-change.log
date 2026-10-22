@@ -1,9 +1,0 @@
-[0/1] Planning build
-Building for debugging...
-[0/3] Write swift-version--1AB21518FC5DEDBE.txt
-Build of product 'RibbonCoreChecks' complete! (0.16s)
-PASS AppKit scroll event lifecycle
-PASS Demo controller
-FAIL controller checks require one display
-FAIL Display or permission changed during review. No windows were moved.
-14 desktop assertions; 2 failures. Real AppKit view/controller; fake AX bridge. No user windows accessed.

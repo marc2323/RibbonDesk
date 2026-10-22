@@ -11,3 +11,4 @@ dist/
 *.pfx
 *.key
 *.pem
+**/target/

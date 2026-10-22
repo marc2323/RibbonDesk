@@ -18,6 +18,7 @@ local config = {
     ["preset_column_widths"] = { 0.5, 1.0 },
     ["window_resize_cycle"] = true,
     ["focus_follows_mouse"] = focus_follows_mouse,
+    ["preserve_scroll_until_click"] = true,
     ["mouse_follows_focus"] = false,
     ["auto_center"] = false,
     ["animation_speed"] = 10000.0,
@@ -51,11 +52,6 @@ local config = {
       ["horizontal_padding"] = 3,
       ["vertical_padding"] = 0,
     },
-    ["ribbondesk"] = {
-      ["title"] = ".*",
-      ["bundle_id"] = "local.prototype.RibbonDesk",
-      ["floating"] = true,
-    },
   },
   ["decorations"] = {
     ["workspace_menu_status"] = false,
@@ -78,6 +74,8 @@ config.windows.default.horizontal_padding = math.floor(gap / 2)
 config.windows.preferences = {
     title = ".*", bundle_id = "local.paneru.preferences", floating = true,
 }
+-- An interrupted settings refresh cannot leave calibration armed on relaunch.
+paneru.state.set("paneru.calibrating_layout", false)
 paneru.setup(config)
 
 -- Keep every global shortcut on the same Control + Option modifier.
@@ -122,7 +120,8 @@ paneru.bind("ctrl + alt - 2", function(ws) return set_width(ws, 0.5) end)
 paneru.bind("ctrl + alt - 0", function(ws) return set_width(ws, 1.0) end)
 paneru.bind("ctrl + alt - f", function(ws) return set_width(ws, 1.0) end)
 
--- Normalize each admitted half/full column once, then preserve later focus changes.
+-- Normalize new columns and explicit gap refreshes. Ordinary focus changes
+-- must never resize columns or alter a manually scrolled viewport.
 local function calibrate_half(_, ws)
     local id, window = focused_window(ws)
     if not id or calibrated[id] then return ws end
@@ -131,7 +130,12 @@ local function calibrate_half(_, ws)
     calibrated[id] = true
     return ws:width(id, window.frame.width <= display.width * 0.75 and 0.5 or 1.0)
 end
-paneru.on("window_focused", calibrate_half)
+paneru.on("window_focused", function(event, ws)
+    if paneru.state.get("paneru.calibrating_layout") == true then
+        return calibrate_half(event, ws)
+    end
+    return ws
+end)
 paneru.on("window_spawned", function(event, ws)
     if event.managed and not event.floating and event.window_id == ws:focused() then
         return calibrate_half(event, ws)

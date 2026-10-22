@@ -1,8 +1,0 @@
-[0/1] Planning build
-Building for production...
-[0/4] Write sources
-[1/4] Write swift-version--1AB21518FC5DEDBE.txt
-[3/5] Compiling RibbonDesk AccessibilityBridge.swift
-[3/5] Write Objects.LinkFileList
-[4/5] Linking RibbonDesk
-Build of product 'RibbonDesk' complete! (17.50s)

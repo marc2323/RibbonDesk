@@ -1,8 +1,0 @@
-[0/1] Planning build
-Building for production...
-[0/2] Write swift-version--1AB21518FC5DEDBE.txt
-Build of product 'RibbonDesk' complete! (0.21s)
-/Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/.build/app-stage.HaTf6M/RibbonDeskPreview.app: replacing existing signature
-Signed with certificate 1FE8E06B510F5006F25EE62C971147F046FF42E3 (certificate requirement).
-PASS signing continuity: same certificate 1FE8E06B510F5006F25EE62C971147F046FF42E3, same designated requirement, both cross-checks satisfied.
-Built (not launched): /Users/mtoro/Documents/Codex/2026-10-20/task/RibbonDesk/dist/trackpad-preview/RibbonDeskPreview.app

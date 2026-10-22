@@ -1,4 +1,0 @@
-dist/RibbonDesk.app: local.prototype.RibbonDesk, version 0.9.0, build 9; codesign --verify --strict PASS
-dist/RibbonDesk.app/Contents/MacOS/RibbonDesk: Mach-O 64-bit executable arm64
-dist/trackpad-preview/RibbonDeskPreview.app: local.prototype.RibbonDesk.preview, version 0.9.0, build 9; codesign --verify --strict PASS
-dist/trackpad-preview/RibbonDeskPreview.app/Contents/MacOS/RibbonDesk: Mach-O 64-bit executable arm64

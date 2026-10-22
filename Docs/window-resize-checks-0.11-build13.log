@@ -1,5 +1,0 @@
-[0/1] Planning build
-Building for debugging...
-[0/3] Write swift-version--1AB21518FC5DEDBE.txt
-Build of product 'RibbonCoreChecks' complete! (0.19s)
-70 window resize assertions; 0 failures. Pure policy/injected sizing; no AX, native windows, input, or preferences accessed.
