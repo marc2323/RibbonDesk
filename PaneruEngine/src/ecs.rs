@@ -9,8 +9,9 @@ use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::query::{Added, Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::SystemCondition;
-use bevy::ecs::schedule::common_conditions::{not, resource_exists};
+use bevy::ecs::schedule::common_conditions::{not, resource_changed, resource_exists};
 use bevy::ecs::schedule::{ScheduleLabel as _, SingleThreadedExecutor};
+use bevy::ecs::system::IntoSystem;
 use bevy::ecs::system::{Commands, EntityCommands, Query, Res, SystemId};
 use bevy::prelude::Event as BevyEvent;
 use bevy::tasks::Task;
@@ -40,6 +41,7 @@ use crate::menubar::MenuBarManager;
 use crate::overlay::{FlashMessageManager, OverlayManager};
 use crate::platform::{Modifiers, PlatformCallbacks, WinID, WorkspaceId};
 
+pub(crate) mod decorations;
 pub mod display;
 pub mod focus;
 pub mod layout;
@@ -73,21 +75,18 @@ pub fn register_systems(app: &mut bevy::app::App) {
     const LOW_POWER_MODE_CHECK: Duration = Duration::from_mins(1);
     const APP_OBSERVABILITY_CHECK_FREQ: Duration = Duration::from_millis(200);
 
+    app.init_resource::<decorations::OverlayState>()
+        .init_resource::<decorations::OverlayMotion>();
+
     let not_swiping = |scrolling: Query<&Scrolling, With<ActiveWorkspaceMarker>>| {
         scrolling
             .iter()
             .next()
             .is_none_or(|marker| !marker.is_user_swiping)
     };
-    let dimming_enabled = |config: Option<Res<Config>>| {
-        config
-            .is_some_and(|config| config.has_dim_inactive_color() || config.border_active_window())
-    };
-    // The overlay must refresh not just when the active strip's layout changes,
-    // but also whenever focus moves — including focus *loss* (e.g. switching to
-    // an empty virtual workspace), which otherwise leaves a stale outline.
-    // Position changes on the focused window also dirty the overlay so that
-    // dragging a floating window moves the highlight with it.
+    // The workspace indicator follows layout, focus, and floating geometry.
+    // Outlines have a separate condition that also handles focus loss,
+    // configuration, resizing, and visibility transitions.
     let vw_indicator_dirty =
         |strip_changed: Query<(), (With<ActiveWorkspaceMarker>, Changed<LayoutStrip>)>,
          focus_gained: Query<(), Added<FocusedMarker>>,
@@ -193,11 +192,14 @@ pub fn register_systems(app: &mut bevy::app::App) {
             )
                 .chain(),
             (
+                decorations::track_overlay_motion
+                    .after(systems::verify_window_position)
+                    .after(systems::commit_window_size)
+                    .run_if(decorations::overlay_motion_dirty),
                 systems::update_overlays
-                    .after(systems::animate_entities)
-                    .after(systems::animate_resize_entities)
-                    .run_if(dimming_enabled)
-                    .run_if(vw_indicator_dirty),
+                    .pipe(decorations::set_overlay_state)
+                    .run_if(decorations::overlay_dirty),
+                systems::render_overlays.run_if(resource_changed::<decorations::OverlayState>),
                 systems::update_flash_messages,
             )
                 .chain(),

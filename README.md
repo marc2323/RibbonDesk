@@ -1,7 +1,8 @@
 # Paneru with native settings
 
 A compact macOS menu-bar companion and a local build of Paneru 0.5.2. The dropdown
-controls activation mode, scroll speed, window gaps, and launch at login, with the
+controls activation mode, scroll speed, window gaps, the active window outline,
+and launch at login, with the
 complete Control–Option shortcut list visible without scrolling.
 
 - `PaneruPreferences/`: SwiftUI/AppKit companion, click protection, icons, and installer.

@@ -2541,6 +2541,46 @@ mod lua_setup_tests {
     }
 
     #[test]
+    fn companion_outline_settings_reach_the_engine() {
+        for (preferences, enabled, color) in [
+            ("{}", true, (51.0 / 255.0, 135.0 / 255.0, 158.0 / 255.0)),
+            (
+                r##"{ border_enabled = false, border_color = "#FF8800" }"##,
+                false,
+                (1.0, 136.0 / 255.0, 0.0),
+            ),
+            (
+                r#"{ border_color = "invalid" }"#,
+                true,
+                (51.0 / 255.0, 135.0 / 255.0, 158.0 / 255.0),
+            ),
+        ] {
+            let lua = Lua::new();
+            lua.load(format!(
+                r"
+                dofile = function() return {preferences} end
+                paneru = {{
+                    setup = function(c) result = c end,
+                    bind = function() end,
+                    on = function() end,
+                }}
+            "
+            ))
+            .exec()
+            .unwrap();
+            lua.load(include_str!("../../PaneruPreferences/paneru-init.lua"))
+                .exec()
+                .unwrap();
+            let value = lua.globals().get::<mlua::Value>("result").unwrap();
+            let config = config_from_lua(&lua, value).unwrap();
+            assert_eq!(config.border_active_window(), enabled);
+            assert_eq!(config.border_color(), color);
+            assert!((config.border_width() - 2.0).abs() < f64::EPSILON);
+            assert!(config.dim_inactive_opacity().abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
     fn setup_table_populates_accessors() {
         let config = config_from_source(
             r"return {

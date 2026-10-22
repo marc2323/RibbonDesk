@@ -2,44 +2,6 @@ import AppKit
 import SwiftUI
 import Foundation
 
-enum FocusMode: String, Codable, CaseIterable, Sendable {
-    case hover, click
-}
-
-struct Preferences: Codable, Equatable, Sendable {
-    var speed: Double
-    var gap: Int
-    var focusMode: FocusMode = .hover
-    var launchAtLogin: Bool = false
-    var disabledSpaceUUIDs: [String] = []
-    static let defaults = Preferences(speed: 0.65, gap: 6)
-
-    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = []) {
-        self.speed = speed
-        self.gap = gap
-        self.focusMode = focusMode
-        self.launchAtLogin = launchAtLogin
-        self.disabledSpaceUUIDs = disabledSpaceUUIDs
-    }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        speed = try values.decode(Double.self, forKey: .speed)
-        gap = try values.decode(Int.self, forKey: .gap)
-        // Existing installations have only speed and gap. Preserve both values.
-        focusMode = try values.decodeIfPresent(FocusMode.self, forKey: .focusMode) ?? .hover
-        launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
-        disabledSpaceUUIDs = try values.decodeIfPresent([String].self, forKey: .disabledSpaceUUIDs) ?? []
-    }
-
-    var validated: Preferences {
-        Preferences(speed: speed.isFinite ? min(1.5, max(0.2, speed)) : 0.65,
-                    gap: Int((Double(min(24, max(0, gap))) / 2).rounded()) * 2,
-                    focusMode: focusMode, launchAtLogin: launchAtLogin,
-                    disabledSpaceUUIDs: Array(Set(disabledSpaceUUIDs.filter { !$0.isEmpty })).sorted())
-    }
-}
-
 enum PreferenceFiles {
     static let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/paneru")
     static let json = directory.appendingPathComponent("preferences.json")
@@ -57,11 +19,9 @@ enum PreferenceFiles {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(value).write(to: json, options: .atomic)
-        let speed = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.speed)
-        let hover = value.focusMode == .hover ? "true" : "false"
         let excludedIDs = DesktopSpaces.read().spaces.filter { value.disabledSpaceUUIDs.contains($0.uuid) }
-            .map { String($0.id) }.joined(separator: ", ")
-        let source = "-- Written by Paneru Settings.\nreturn { speed = \(speed), gap = \(value.gap), focus_follows_mouse = \(hover), disabled_spaces = { \(excludedIDs) } }\n"
+            .map(\.id)
+        let source = value.luaSource(disabledSpaceIDs: excludedIDs)
         try Data(source.utf8).write(to: lua, options: .atomic)
         for file in [json, lua] {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
@@ -191,7 +151,8 @@ enum Engine {
                 try stop()
                 try start()
                 try normalizeActiveWorkspace()
-            } else if preferences.speed != previous.speed || preferences.focusMode != previous.focusMode {
+            } else if preferences.speed != previous.speed || preferences.focusMode != previous.focusMode
+                        || preferences.borderEnabled != previous.borderEnabled || preferences.borderColor != previous.borderColor {
                 try PreferenceFiles.reload()
                 Thread.sleep(forTimeInterval: 0.25)
             }
@@ -212,6 +173,8 @@ final class SettingsModel: ObservableObject {
     @Published var focusMode: FocusMode
     @Published var launchAtLogin: Bool
     @Published var disabledSpaceUUIDs: [String]
+    @Published var borderEnabled: Bool
+    @Published var borderColorHex: String
     @Published var desktop: DesktopSpace?
     @Published var desktopSuspended = false
     @Published var loginApprovalRequired = LoginItem.requiresApproval
@@ -234,6 +197,8 @@ final class SettingsModel: ObservableObject {
         focusMode = preferences.focusMode
         launchAtLogin = preferences.launchAtLogin
         disabledSpaceUUIDs = preferences.disabledSpaceUUIDs
+        borderEnabled = preferences.borderEnabled
+        borderColorHex = preferences.borderColor
         desktop = DesktopSpaces.read().current
         clickGuard.shouldHandlePoint = { [weak self] point in
             let disabled = self?.saved.disabledSpaceUUIDs ?? []
@@ -245,8 +210,19 @@ final class SettingsModel: ObservableObject {
         catch { failed = true; message = error.localizedDescription }
     }
 
-    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode, launchAtLogin: launchAtLogin, disabledSpaceUUIDs: disabledSpaceUUIDs).validated }
+    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode, launchAtLogin: launchAtLogin, disabledSpaceUUIDs: disabledSpaceUUIDs, borderEnabled: borderEnabled, borderColor: borderColorHex).validated }
     var changed: Bool { draft != saved }
+
+    var borderColor: Color {
+        get {
+            let rgb = BorderColor.components(borderColorHex)
+            return Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue)
+        }
+        set {
+            guard let rgb = NSColor(newValue).usingColorSpace(.sRGB) else { return }
+            borderColorHex = BorderColor.hex(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+        }
+    }
 
     var currentDesktopEnabled: Bool {
         get { desktop.map { !disabledSpaceUUIDs.contains($0.uuid) } ?? true }
@@ -281,6 +257,8 @@ final class SettingsModel: ObservableObject {
             focusMode = saved.focusMode
             launchAtLogin = saved.launchAtLogin
             disabledSpaceUUIDs = saved.disabledSpaceUUIDs
+            borderEnabled = saved.borderEnabled
+            borderColorHex = saved.borderColor
         }
         do { try clickGuard.configure(for: protectionSuspended ? .hover : current.focusMode) }
         catch { failed = true; message = error.localizedDescription }
@@ -292,6 +270,8 @@ final class SettingsModel: ObservableObject {
         focusMode = Preferences.defaults.focusMode
         launchAtLogin = Preferences.defaults.launchAtLogin
         disabledSpaceUUIDs = Preferences.defaults.disabledSpaceUUIDs
+        borderEnabled = Preferences.defaults.borderEnabled
+        borderColorHex = Preferences.defaults.borderColor
         message = "Defaults selected. Choose Save to apply."
         failed = false
     }
@@ -323,6 +303,8 @@ final class SettingsModel: ObservableObject {
                 focusMode = next.focusMode
                 launchAtLogin = next.launchAtLogin
                 disabledSpaceUUIDs = next.disabledSpaceUUIDs
+                borderEnabled = next.borderEnabled
+                borderColorHex = next.borderColor
                 loginApprovalRequired = LoginItem.requiresApproval
                 message = running ? "Saved. Your settings are active." : "Saved for the next time Paneru starts."
                 if DesktopSpaces.read().isSuspended(disabled: next.disabledSpaceUUIDs) {
@@ -451,6 +433,29 @@ struct SettingsView: View {
                     }
                 }.font(.system(size: 12)).controlSize(.small)
                     .padding(10).background(.background, in: RoundedRectangle(cornerRadius: 9))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Toggle("Active window outline", isOn: $model.borderEnabled)
+                            .toggleStyle(.switch).controlSize(.mini)
+                            .font(.system(size: 12, weight: .medium))
+                        ColorPicker("Outline color", selection: $model.borderColor, supportsOpacity: false)
+                            .labelsHidden().fixedSize()
+                            .disabled(!model.borderEnabled)
+                            .accessibilityLabel("Outline color")
+                            .help("Choose the active window’s outline color, then Save.")
+                        TextField("#RRGGBB", text: $model.borderColorHex)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(width: 74)
+                            .disabled(!model.borderEnabled)
+                            .accessibilityLabel("Outline color hex")
+                            .help("Enter a six-digit hex color, such as #33879E, then Save.")
+                            .onSubmit { model.borderColorHex = BorderColor.normalized(model.borderColorHex) }
+                    }
+                    Text("A thin outline highlights the active window.")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
