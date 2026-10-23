@@ -1,6 +1,7 @@
 # Settings guide
 
-Paneru Settings is the native menu-bar companion for the bundled Paneru engine.
+RibbonDesk’s native menu-bar companion controls the bundled Paneru engine. Its
+current macOS app bundle and permission entries are named **Paneru Settings**.
 For downloads and installation, see the [main README](../README.md#install).
 
 Open Settings by clicking the three-window menu-bar icon or pressing
