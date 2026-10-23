@@ -154,10 +154,10 @@ enum Engine {
                 try stop()
                 try start()
                 try normalizeActiveWorkspace()
-            } else if preferences.speed != previous.speed || preferences.focusMode != previous.focusMode
+            } else if preferences.scrollTuning != previous.scrollTuning
+                        || preferences.focusMode != previous.focusMode
                         || preferences.borderEnabled != previous.borderEnabled || preferences.borderColor != previous.borderColor {
                 try PreferenceFiles.reload()
-                Thread.sleep(forTimeInterval: 0.25)
             }
             return wasRunning
         } catch {
@@ -171,37 +171,111 @@ enum Engine {
 
 @MainActor
 final class SettingsModel: ObservableObject {
-    @Published var speed: Double
-    @Published var gap: Double
-    @Published var focusMode: FocusMode
-    @Published var launchAtLogin: Bool
-    @Published var disabledSpaceUUIDs: [String]
-    @Published var borderEnabled: Bool
-    @Published var borderColorHex: String
+    @Published var speed: Double { didSet { preferenceChanged() } }
+    @Published var momentum: Double { didSet { preferenceChanged() } }
+    @Published var momentumDecay: Double { didSet { preferenceChanged() } }
+    @Published var snapSpeed: Double { didSet { preferenceChanged() } }
+    @Published var snapVisible: Double { didSet { preferenceChanged() } }
+    @Published var snapAnimation: Double { didSet { preferenceChanged() } }
+    @Published var snapFullWidth: Bool { didSet { preferenceChanged() } }
+    @Published var snapHalfWidth: Bool { didSet { preferenceChanged() } }
+    @Published var snapBack: Bool { didSet { preferenceChanged() } }
+    @Published var snapExitDistance: Double { didSet { preferenceChanged() } }
+    @Published var threeFingerPaging: Bool { didSet { preferenceChanged() } }
+    @Published var gap: Double { didSet { preferenceChanged() } }
+    @Published var focusMode: FocusMode { didSet { preferenceChanged() } }
+    @Published var launchAtLogin: Bool { didSet { preferenceChanged() } }
+    @Published var disabledSpaceUUIDs: [String] { didSet { preferenceChanged() } }
+    @Published var borderEnabled: Bool { didSet { preferenceChanged() } }
+    @Published var borderColorHex: String { didSet { preferenceChanged() } }
     @Published var desktop: DesktopSpace?
     @Published var desktopSuspended = false
     @Published var loginApprovalRequired = LoginItem.requiresApproval
     @Published var accessibilityGranted = ActivationClickGuard.isAuthorized
+    @Published var engineRunning = false
+    @Published var engineBusy = false { didSet { engineActivityChanged?(engineBusy) } }
+    var engineActivityChanged: ((Bool) -> Void)?
+    var toggleEngineAction: (() -> Void)?
+    var restartEngineAction: (() -> Void)?
+    var quitAction: (() -> Void)?
     @Published var applying = false
-    @Published var message = "Changes apply when you choose Save."
+    @Published var message = "Changes apply automatically."
+    @Published var presets: [ScrollPreset] = []
+    @Published var selectedPresetID = ""
+    @Published var presetName = ""
+    private let presetStore = ScrollPresetStore(url: PreferenceFiles.directory.appendingPathComponent("scroll-presets.json"))
     @Published var failed = false
     private var saved: Preferences
     private let clickGuard = ActivationClickGuard()
-    var willApply: (() -> Void)?
+    var willApply: ((Bool) -> Void)?
     var didApply: (() -> Void)?
     private var protectionSuspended = false
+    private var restoring = false
+    private lazy var autosaver: PreferencesAutosaver = {
+        let saver = PreferencesAutosaver(initial: saved) { [weak self] next, previous in
+            try await self?.apply(next, previous: previous)
+        }
+        saver.onBusy = { [weak self] in
+            self?.applying = true
+            self?.failed = false
+        }
+        saver.onStart = { [weak self] next, previous in
+            guard let self else { return }
+            failed = false
+            let layout = next.gap != previous.gap || next.disabledSpaceUUIDs != previous.disabledSpaceUUIDs
+            message = layout ? "Refreshing the window layout…" : "Applying…"
+            willApply?(layout)
+        }
+        saver.onApplied = { [weak self] next, previous in
+            guard let self else { return }
+            saved = next
+            loginApprovalRequired = LoginItem.requiresApproval
+            message = "Settings saved automatically."
+            if DesktopSpaces.read().isSuspended(disabled: next.disabledSpaceUUIDs) {
+                message = "Paneru is disabled on this Desktop."
+            } else if previous.disabledSpaceUUIDs != next.disabledSpaceUUIDs {
+                message = "This Desktop is enabled."
+            }
+            if loginApprovalRequired { message = "Approve Paneru Settings in Login Items to launch at login." }
+        }
+        saver.onFailure = { [weak self] error, applied, hasNewerEdit in
+            guard let self else { return }
+            if !hasNewerEdit { setDraft(applied) }
+            accessibilityGranted = ActivationClickGuard.isAuthorized
+            failed = true
+            message = "Couldn’t apply settings. " + error.localizedDescription
+            NSLog("Paneru Settings: %@", error.localizedDescription)
+        }
+        saver.onIdle = { [weak self] in
+            self?.applying = false
+            self?.didApply?()
+        }
+        return saver
+    }()
 
     init() {
         var preferences = PreferenceFiles.read()
         preferences.launchAtLogin = LoginItem.enabled
         saved = preferences
         speed = preferences.speed
+        momentum = preferences.momentum
+        momentumDecay = preferences.momentumDecay
+        snapSpeed = preferences.snapSpeed
+        snapVisible = preferences.snapVisible
+        snapAnimation = preferences.snapAnimation
+        snapFullWidth = preferences.snapFullWidth
+        snapHalfWidth = preferences.snapHalfWidth
+        snapBack = preferences.snapBack
+        snapExitDistance = preferences.snapExitDistance
+        threeFingerPaging = preferences.threeFingerPaging
         gap = Double(preferences.gap)
         focusMode = preferences.focusMode
         launchAtLogin = preferences.launchAtLogin
         disabledSpaceUUIDs = preferences.disabledSpaceUUIDs
         borderEnabled = preferences.borderEnabled
         borderColorHex = preferences.borderColor
+        do { presets = try presetStore.read() }
+        catch { failed = true; message = "Couldn’t read feel presets. " + error.localizedDescription }
         desktop = DesktopSpaces.read().current
         clickGuard.shouldHandlePoint = { [weak self] point in
             let disabled = self?.saved.disabledSpaceUUIDs ?? []
@@ -213,12 +287,24 @@ final class SettingsModel: ObservableObject {
         catch { failed = true; message = error.localizedDescription }
     }
 
-    var draft: Preferences { Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()), focusMode: focusMode, launchAtLogin: launchAtLogin, disabledSpaceUUIDs: disabledSpaceUUIDs, borderEnabled: borderEnabled, borderColor: borderColorHex).validated }
-    var changed: Bool { draft != saved }
+    var draft: Preferences {
+        Preferences(speed: (speed * 100).rounded() / 100, gap: Int(gap.rounded()),
+                    focusMode: focusMode, launchAtLogin: launchAtLogin,
+                    disabledSpaceUUIDs: disabledSpaceUUIDs, borderEnabled: borderEnabled,
+                    borderColor: BorderColor.parsedHex(borderColorHex) ?? saved.borderColor,
+                    momentum: (momentum * 100).rounded() / 100,
+                    snapSpeed: (snapSpeed * 100).rounded() / 100,
+                    snapVisible: (snapVisible * 100).rounded() / 100,
+                    momentumDecay: (momentumDecay * 100).rounded() / 100,
+                    snapAnimation: (snapAnimation * 100).rounded() / 100,
+                    snapFullWidth: snapFullWidth, snapHalfWidth: snapHalfWidth, snapBack: snapBack,
+                    snapExitDistance: (snapExitDistance * 100).rounded() / 100,
+                    threeFingerPaging: threeFingerPaging).validated
+    }
 
     var borderColor: Color {
         get {
-            let rgb = BorderColor.components(borderColorHex)
+            let rgb = BorderColor.components(BorderColor.parsedHex(borderColorHex) ?? saved.borderColor)
             return Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue)
         }
         set {
@@ -252,254 +338,100 @@ final class SettingsModel: ObservableObject {
         var current = PreferenceFiles.read()
         current.launchAtLogin = LoginItem.enabled
         loginApprovalRequired = LoginItem.requiresApproval
-        // Retain an unsaved choice while the user grants Accessibility in Settings.
         if current != saved {
             saved = current
-            speed = saved.speed
-            gap = Double(saved.gap)
-            focusMode = saved.focusMode
-            launchAtLogin = saved.launchAtLogin
-            disabledSpaceUUIDs = saved.disabledSpaceUUIDs
-            borderEnabled = saved.borderEnabled
-            borderColorHex = saved.borderColor
+            autosaver.replaceApplied(current)
+            setDraft(current)
         }
         do { try clickGuard.configure(for: protectionSuspended ? .hover : current.focusMode) }
         catch { failed = true; message = error.localizedDescription }
     }
 
-    func reset() {
-        speed = Preferences.defaults.speed
-        gap = Double(Preferences.defaults.gap)
-        focusMode = Preferences.defaults.focusMode
-        launchAtLogin = Preferences.defaults.launchAtLogin
-        disabledSpaceUUIDs = Preferences.defaults.disabledSpaceUUIDs
-        borderEnabled = Preferences.defaults.borderEnabled
-        borderColorHex = Preferences.defaults.borderColor
-        message = "Defaults selected. Choose Save to apply."
-        failed = false
+    private func setDraft(_ value: Preferences) {
+        restoring = true
+        defer { restoring = false }
+        speed = value.speed
+        momentum = value.momentum
+        momentumDecay = value.momentumDecay
+        snapSpeed = value.snapSpeed
+        snapVisible = value.snapVisible
+        snapAnimation = value.snapAnimation
+        snapFullWidth = value.snapFullWidth
+        snapHalfWidth = value.snapHalfWidth
+        snapBack = value.snapBack
+        snapExitDistance = value.snapExitDistance
+        threeFingerPaging = value.threeFingerPaging
+        gap = Double(value.gap)
+        focusMode = value.focusMode
+        launchAtLogin = value.launchAtLogin
+        disabledSpaceUUIDs = value.disabledSpaceUUIDs
+        borderEnabled = value.borderEnabled
+        borderColorHex = value.borderColor
     }
 
-    func save() {
-        guard changed && !applying else { return }
-        let next = draft, previous = saved
+    private func preferenceChanged() {
+        guard !restoring else { return }
+        autosaver.submit(draft)
+    }
+
+    func reset() {
+        setDraft(.defaults)
+        preferenceChanged()
+    }
+
+    func savePreset() {
         do {
-            // Do not save Click mode unless activation-only clicks can be enforced.
-            if next.focusMode == .click && !protectionSuspended { try clickGuard.configure(for: .click) }
+            let preset = try presetStore.save(name: presetName, tuning: draft.scrollTuning)
+            presets = try presetStore.read()
+            selectedPresetID = preset.id
+            presetName = preset.name
+            failed = false
+            message = "Saved feel preset ‘\(preset.name)’."
+        } catch { failed = true; message = "Couldn’t save preset. " + error.localizedDescription }
+    }
+
+    func loadPreset() {
+        guard let preset = presets.first(where: { $0.id == selectedPresetID }) else { return }
+        var next = draft
+        next.scrollTuning = preset.tuning.validated
+        setDraft(next)
+        presetName = preset.name
+        preferenceChanged()
+    }
+
+    func deletePreset() {
+        guard !selectedPresetID.isEmpty else { return }
+        do {
+            try presetStore.delete(id: selectedPresetID)
+            presets = try presetStore.read()
+            selectedPresetID = ""
+            presetName = ""
+            failed = false
+            message = "Feel preset deleted. Current settings are unchanged."
+        } catch { failed = true; message = "Couldn’t delete preset. " + error.localizedDescription }
+    }
+
+    func commitBorderColor() {
+        borderColorHex = BorderColor.parsedHex(borderColorHex) ?? saved.borderColor
+    }
+
+    private func apply(_ next: Preferences, previous: Preferences) async throws {
+        do {
+            let suspended = DesktopSpaces.read().isSuspended(disabled: next.disabledSpaceUUIDs)
+            if next.focusMode == .click && !suspended { try clickGuard.configure(for: .click) }
+            if next.launchAtLogin != previous.launchAtLogin { try LoginItem.setEnabled(next.launchAtLogin) }
+            _ = try await Task.detached { try Engine.apply(next, previous: previous) }.value
+            if next.focusMode == .hover || suspended { try clickGuard.configure(for: .hover) }
         } catch {
-            accessibilityGranted = ActivationClickGuard.isAuthorized
-            failed = true
-            message = error.localizedDescription
-            return
-        }
-        applying = true
-        willApply?()
-        failed = false
-        message = next.gap == previous.gap ? "Saving…" : "Refreshing the window layout…"
-        Task {
-            do {
-                try LoginItem.setEnabled(next.launchAtLogin)
-                let running = try await Task.detached { try Engine.apply(next, previous: previous) }.value
-                if next.focusMode == .hover { try clickGuard.configure(for: .hover) }
-                saved = next
-                speed = next.speed
-                gap = Double(next.gap)
-                focusMode = next.focusMode
-                launchAtLogin = next.launchAtLogin
-                disabledSpaceUUIDs = next.disabledSpaceUUIDs
-                borderEnabled = next.borderEnabled
-                borderColorHex = next.borderColor
-                loginApprovalRequired = LoginItem.requiresApproval
-                message = running ? "Saved. Your settings are active." : "Saved for the next time Paneru starts."
-                if DesktopSpaces.read().isSuspended(disabled: next.disabledSpaceUUIDs) {
-                    message = "Saved. Paneru is disabled on this Desktop."
-                } else if previous.disabledSpaceUUIDs != next.disabledSpaceUUIDs {
-                    message = "Saved. This Desktop is enabled."
-                }
-                if loginApprovalRequired { message = "Saved. Approve Paneru Settings in Login Items to launch at login." }
-            } catch {
-                try? LoginItem.setEnabled(previous.launchAtLogin)
-                try? clickGuard.configure(for: protectionSuspended ? .hover : previous.focusMode)
-                failed = true
-                message = "Couldn’t apply settings. Previous settings restored."
-                NSLog("Paneru Settings: %@", error.localizedDescription)
-            }
-            applying = false
-            didApply?()
+            if next.launchAtLogin != previous.launchAtLogin { try? LoginItem.setEnabled(previous.launchAtLogin) }
+            try? clickGuard.configure(for: protectionSuspended ? .hover : previous.focusMode)
+            throw error
         }
     }
 
     func allowClickMode() {
         ActivationClickGuard.requestAuthorization()
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-    }
-}
-
-struct Panes: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let scale = min(rect.width / 22, rect.height / 20)
-        let origin = CGPoint(x: rect.midX - 11 * scale, y: rect.midY - 10 * scale)
-        for x in [2.0, 9.0, 16.0] {
-            let frame = CGRect(x: origin.x + x * scale, y: origin.y + 3 * scale, width: 4 * scale, height: 14 * scale)
-            path.addRoundedRect(in: frame, cornerSize: CGSize(width: scale, height: scale))
-        }
-        return path
-    }
-}
-
-struct SettingsView: View {
-    static let width: CGFloat = 380
-    @ObservedObject var model: SettingsModel
-    private let accent = Color(red: 0.20, green: 0.53, blue: 0.62)
-    private let shortcuts = [
-        ("Previous / next window", "H / L or ← / →"),
-        ("Move window left / right", "J / K"),
-        ("Half width", "2"),
-        ("Full width", "0 / F"),
-        ("Toggle half / full", "R"),
-        ("Toggle floating", "T"),
-        ("First / last window", "Home / End"),
-        ("Open settings", "S"),
-        ("Pause window management", "Q")
-    ]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Panes().stroke(.white, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                        .padding(5).frame(width: 28, height: 28)
-                        .background(accent.gradient, in: RoundedRectangle(cornerRadius: 8))
-                    Text("Paneru").font(.system(size: 17, weight: .semibold, design: .rounded))
-                    Text("Settings").font(.system(size: 11)).foregroundStyle(.secondary)
-                    Spacer()
-                }
-
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Text("Activate on").font(.system(size: 12, weight: .medium))
-                        Spacer(minLength: 0)
-                        Picker("Activate windows", selection: $model.focusMode) {
-                            Text("Mouse over").tag(FocusMode.hover)
-                            Text("Click").tag(FocusMode.click)
-                        }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
-                    }
-                    Text(model.focusMode == .hover
-                         ? "Hover over a window to activate it."
-                         : "First click activates. Click again to interact.")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                    if model.focusMode == .click && !model.accessibilityGranted {
-                        Button("Allow Click Mode…", action: model.allowClickMode)
-                        Text("Allow Accessibility for Paneru Settings, then choose Save.")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                }.padding(10).background(.background, in: RoundedRectangle(cornerRadius: 9))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Toggle("Enable on this Desktop", isOn: $model.currentDesktopEnabled)
-                        .toggleStyle(.switch).controlSize(.mini)
-                        .font(.system(size: 12, weight: .medium))
-                        .disabled(model.desktop == nil)
-                    Text(model.desktop.map { "\($0.name) · Off disables tiling, gestures, activation, and hotkeys." }
-                         ?? "Switch to a desktop Space to change this option.")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-
-                Toggle(isOn: $model.launchAtLogin) {
-                    HStack(spacing: 6) {
-                        Text("Launch at login").font(.system(size: 12, weight: .medium))
-                        Text("Paneru + menu bar").font(.system(size: 10)).foregroundStyle(.secondary)
-                    }
-                }.toggleStyle(.switch).controlSize(.mini)
-                    .accessibilityLabel("Launch at login")
-                    .accessibilityHint("Starts Paneru and the menu-bar app automatically when you log in.")
-                if model.loginApprovalRequired {
-                    Button("Approve in Login Items…", action: LoginItem.openSettings)
-                }
-
-                VStack(spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text("Scroll speed").frame(width: 78, alignment: .leading)
-                        Slider(value: $model.speed, in: 0.2...1.5, step: 0.05)
-                            .accessibilityLabel("Scroll speed")
-                            .help("Move left for slower scrolling, right for faster scrolling.")
-                        Text(String(format: "%.2f×", model.speed)).monospacedDigit()
-                            .foregroundStyle(.secondary).frame(width: 42, alignment: .trailing)
-                    }
-                    HStack(spacing: 8) {
-                        Text("Window gap").frame(width: 78, alignment: .leading)
-                        Slider(value: $model.gap, in: 0...24, step: 2)
-                            .accessibilityLabel("Window gap")
-                            .help("Gap changes briefly refresh the window layout.")
-                        Text("\(Int(model.gap)) pt").monospacedDigit()
-                            .foregroundStyle(.secondary).frame(width: 42, alignment: .trailing)
-                    }
-                }.font(.system(size: 12)).controlSize(.small)
-                    .padding(10).background(.background, in: RoundedRectangle(cornerRadius: 9))
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Toggle("Active window outline", isOn: $model.borderEnabled)
-                            .toggleStyle(.switch).controlSize(.mini)
-                            .font(.system(size: 12, weight: .medium))
-                        ColorPicker("Outline color", selection: $model.borderColor, supportsOpacity: false)
-                            .labelsHidden().fixedSize()
-                            .disabled(!model.borderEnabled)
-                            .accessibilityLabel("Outline color")
-                            .help("Choose the active window’s outline color, then Save.")
-                        TextField("#RRGGBB", text: $model.borderColorHex)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11, design: .monospaced))
-                            .frame(width: 74)
-                            .disabled(!model.borderEnabled)
-                            .accessibilityLabel("Outline color hex")
-                            .help("Enter a six-digit hex color, such as #33879E, then Save.")
-                            .onSubmit { model.borderColorHex = BorderColor.normalized(model.borderColorHex) }
-                    }
-                    Text("A thin outline highlights the active window.")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("Keyboard shortcuts", systemImage: "keyboard").font(.system(size: 12, weight: .medium))
-                        Spacer()
-                        Text("Control + Option").font(.system(size: 10)).foregroundStyle(.secondary)
-                    }
-                    VStack(spacing: 3) {
-                        ForEach(shortcuts, id: \.0) { item in
-                            HStack {
-                                Text(item.0).font(.system(size: 11))
-                                Spacer()
-                                Text(item.1).font(.system(size: 10, weight: .medium, design: .monospaced))
-                                    .padding(.horizontal, 6).padding(.vertical, 1)
-                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-                            }.frame(minHeight: 16)
-                        }
-                    }
-                }
-                Text("Click to work in place. ⌘-click a window to snap it into view.")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-            }.padding(12)
-            Divider()
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    if model.applying { ProgressView().controlSize(.small) }
-                    else { Image(systemName: model.failed ? "exclamationmark.circle" : "checkmark.circle") }
-                    Text(model.message).lineLimit(2)
-                }.font(.system(size: 10)).foregroundStyle(model.failed ? Color.red : Color.secondary)
-                    .frame(height: 26, alignment: .leading)
-                HStack {
-                    Button("Reset Defaults", action: model.reset)
-                    Spacer()
-                    Button("Save", action: model.save).buttonStyle(.borderedProminent)
-                        .disabled(!model.changed || model.applying)
-                }
-            }.controlSize(.small).padding(.horizontal, 12).padding(.vertical, 10)
-        }.frame(width: Self.width).fixedSize(horizontal: false, vertical: true)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .tint(accent)
-            .disabled(model.applying)
     }
 }
 
@@ -561,7 +493,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private var item: NSStatusItem!
     private let popover = NSPopover()
     private let contextMenu = NSMenu()
-    private var toggleItem: NSMenuItem!
     private let model = SettingsModel()
     private lazy var desktops = DesktopSpaceController(model: model)
 
@@ -574,38 +505,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         popover.contentSize = controller.view.fittingSize
         popover.behavior = .transient
         popover.delegate = self
-        model.willApply = { [weak self] in
+        model.willApply = { [weak self] layout in
             // A gap refresh briefly focuses managed windows. Keep the controls
             // visible until that operation finishes, then restore normal dismissal.
-            guard let self, self.popover.isShown else { return }
+            guard let self, layout, self.popover.isShown else { return }
             self.popover.behavior = .applicationDefined
         }
         model.didApply = { [weak self] in
             guard let self else { return }
             self.desktops.policyChanged()
-            self.popover.behavior = .transient
-            guard self.popover.isShown else { return }
-            NSApp.activate(ignoringOtherApps: true)
-            self.popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+            self.restorePopoverAfterOperation()
         }
+        model.engineActivityChanged = { [weak self] busy in
+            guard let self else { return }
+            if busy, self.popover.isShown { self.popover.behavior = .applicationDefined }
+            else if !busy { self.restorePopoverAfterOperation() }
+        }
+        model.toggleEngineAction = { [weak self] in self?.desktops.setRequested(!(self?.model.engineRunning ?? false)) }
+        model.restartEngineAction = { [weak self] in self?.desktops.restart() }
+        model.quitAction = { [weak self] in self?.quitAll() }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = Icon.menu
-        item.button?.toolTip = "Paneru — click for settings, right-click for window management"
+        item.button?.toolTip = "Paneru — click for settings, right-click to quit"
         item.button?.setAccessibilityLabel("Paneru")
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked)
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         contextMenu.delegate = self
         contextMenu.autoenablesItems = false
-        contextMenu.addItem(menuItem("Settings…", action: #selector(openSettings)))
-        contextMenu.addItem(.separator())
-        toggleItem = menuItem("Pause Window Management", action: #selector(toggleEngine))
-        contextMenu.addItem(toggleItem)
-        contextMenu.addItem(menuItem("Restart Paneru", action: #selector(restartEngine)))
-        contextMenu.addItem(.separator())
-        contextMenu.addItem(menuItem("Quit Paneru", action: #selector(quitAll)))
+        contextMenu.addItem(menuItem("Quit", action: #selector(quitAll)))
         if !CommandLine.arguments.contains("--background") && !LoginItem.launchedAtLogin { openSettings() }
         desktops.start()
+    }
+
+    private func restorePopoverAfterOperation() {
+        guard !model.applying && !model.engineBusy else { return }
+        let restoreFocus = popover.behavior == .applicationDefined
+        popover.behavior = .transient
+        guard restoreFocus, popover.isShown else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
     }
 
     private func menuItem(_ title: String, action: Selector) -> NSMenuItem {
@@ -615,11 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        // A read of launchd does not wake a paused engine.
-        let disabled = DesktopSpaces.read().isSuspended(disabled: PreferenceFiles.read().disabledSpaceUUIDs)
-        toggleItem.title = disabled ? "Disabled on this Desktop" : (Engine.isRunning() ? "Pause Window Management" : "Start Window Management")
-        for item in menu.items where !item.isSeparatorItem { item.isEnabled = !model.applying }
-        toggleItem.isEnabled = !model.applying && !disabled
+        for item in menu.items { item.isEnabled = !model.applying && !model.engineBusy }
+
     }
 
     @objc private func statusItemClicked() {
@@ -636,7 +572,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
 
     @objc func openSettings() {
         guard let button = item.button else { return }
-        if !popover.isShown { model.refresh() }
+        if !popover.isShown {
+            model.refresh()
+            desktops.refresh()
+        }
+        if model.engineBusy { popover.behavior = .applicationDefined }
         if let view = popover.contentViewController?.view {
             view.layoutSubtreeIfNeeded()
             popover.contentSize = view.fittingSize
@@ -654,7 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     func popoverShouldDetach(_ popover: NSPopover) -> Bool { false }
 
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        !model.applying
+        popover.behavior != .applicationDefined
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -662,22 +602,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return false
     }
 
-    @objc private func toggleEngine() {
-        desktops.setRequested(!Engine.isRunning())
-    }
-
-    @objc private func restartEngine() {
-        Task {
-            do {
-                try await Task.detached { try Engine.stop() }.value
-                desktops.setRequested(true)
-            }
-            catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
-        }
-    }
-
     @objc private func quitAll() {
+        guard !model.applying && !model.engineBusy else { return }
+        model.engineBusy = true
         Task {
+            defer { model.engineBusy = false }
             do { try await Task.detached { try Engine.stop() }.value; NSApp.terminate(nil) }
             catch { model.failed = true; model.message = error.localizedDescription; openSettings() }
         }

@@ -105,6 +105,85 @@ fn keyboard_navigation_always_reveals_after_manual_scroll() {
 }
 
 #[test]
+fn keyboard_swaps_follow_the_moved_window_after_manual_scrolling() {
+    for direction in [Direction::West, Direction::East] {
+        for width in [0.65, 1.0] {
+            for in_motion in [false, true] {
+                let config = Config::try_from(
+                    format!(
+                        r#"
+[options]
+preserve_scroll_until_click = true
+focus_follows_mouse = false
+animation_speed = 10000.0
+[swipe]
+three_finger_paging = true
+[swipe.gesture]
+fingers_count = 3
+[windows.default]
+title = ".*"
+width = {width}
+"#
+                    )
+                    .as_str(),
+                )
+                .expect("swap-follow config");
+                let mut harness = TestHarness::new().with_config(config).with_windows(5);
+                harness.run(vec![
+                    Event::MenuOpened { window_id: 0 },
+                    Event::Command {
+                        command: Command::Window(Operation::Focus(Direction::Nth(1))),
+                    },
+                ]);
+                let delta = if direction == Direction::West {
+                    0.04
+                } else {
+                    -0.04
+                };
+                harness.world().write_message(Event::TouchpadDown);
+                harness
+                    .world()
+                    .write_message(Event::Swipe { delta, fingers: 3 });
+                if !in_motion {
+                    harness.world().write_message(Event::TouchpadUp);
+                }
+                harness.advance(if in_motion {
+                    Duration::from_millis(20)
+                } else {
+                    Duration::from_secs(2)
+                });
+                let (before, held) = active_offset_and_hold(harness.world());
+                assert!(held, "the gesture must own the viewport before swapping");
+
+                harness.run(vec![Event::Command {
+                    command: Command::Window(Operation::Swap(direction.clone())),
+                }]);
+
+                let world = harness.world();
+                assert_focused!(world, 1);
+                let entity = find_window_entity(1, world);
+                let frame = world.get::<Window>(entity).expect("moved window").frame();
+                assert!(
+                    frame.min.x >= 0 && frame.max.x <= TEST_DISPLAY_WIDTH,
+                    "{direction:?} must reveal the moved window: {frame:?}"
+                );
+                let (after, held) = active_offset_and_hold(world);
+                assert_ne!(after.x, before.x, "the viewport must follow the move");
+                assert!(!held, "keyboard moves release the manual scroll hold");
+                assert!(
+                    world
+                        .query::<&crate::ecs::Scrolling>()
+                        .iter(world)
+                        .next()
+                        .is_none(),
+                    "an interrupted gesture must not undo the reveal"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn command_click_reveal_is_briefly_animated_and_trackpad_can_interrupt_it() {
     for interrupt in [false, true] {
         let config: Config = (
@@ -266,6 +345,7 @@ fn check_scroll_hold_until_command_click(
     let mut harness = TestHarness::new()
         .with_config(config)
         .with_windows(5)
+        .with_command_duration(Duration::from_secs(2))
         .on_iteration(1, |world, _| {
             let (offset, held) = active_offset_and_hold(world);
             assert!(held);
@@ -801,9 +881,16 @@ fn test_scrolling() {
         // The strip has come to rest mid-scroll: still one contiguous run of
         // 400px columns, none of them parked at an edge sliver.
         .on_iteration(5, move |world, _state| {
-            assert_window_at!(world, 0, -186, TEST_MENUBAR_HEIGHT);
-            assert_window_at!(world, 1, 214, TEST_MENUBAR_HEIGHT);
-            assert_window_at!(world, 2, 614, TEST_MENUBAR_HEIGHT);
+            let entity = find_window_entity(0, world);
+            let x = world
+                .get::<Window>(entity)
+                .expect("first window")
+                .frame()
+                .min
+                .x;
+            assert!(x < -100 && x > -300, "a modest flick stays mid-strip");
+            assert_window_at!(world, 1, x + 400, TEST_MENUBAR_HEIGHT);
+            assert_window_at!(world, 2, x + 800, TEST_MENUBAR_HEIGHT);
         })
         .run(commands);
 }
@@ -848,7 +935,8 @@ fn automatic_focus_respects_window_hidden_ratio() {
         Event::MenuOpened { window_id: 0 },
         Event::WindowFocused { window_id: 1 },
         Event::Swipe {
-            delta: 0.3,
+            // Stay within the configured half-window hidden ratio after coasting.
+            delta: 0.025,
             fingers: 3,
         },
         Event::WindowFocused { window_id: 0 },
@@ -857,6 +945,7 @@ fn automatic_focus_respects_window_hidden_ratio() {
     let config: Config = (
         MainOptions {
             window_hidden_ratio: Some(0.5),
+            auto_center: Some(false),
             focus_follows_mouse: Some(false),
             animation_speed: Some(10000.0),
             swipe_gesture_fingers: Some(3),
@@ -870,11 +959,21 @@ fn automatic_focus_respects_window_hidden_ratio() {
         .with_config(config)
         .with_windows(2)
         .on_iteration(0, |_, state| state.focus_window(1))
-        .on_iteration(2, |_, state| state.focus_window(0))
+        .on_iteration(2, |world, state| {
+            assert!(
+                active_offset_and_hold(world).0.x < 0,
+                "the focus test must start partially scrolled"
+            );
+            state.focus_window(0);
+        })
         .on_iteration(3, |world, _state| {
             let entity = find_window_entity(0, world);
             let window = world.get::<Window>(entity).expect("finding window");
-            assert!(window.frame().min.x < 0);
+            assert!(
+                window.frame().min.x < 0,
+                "frame after focus: {:?}",
+                window.frame()
+            );
         })
         .run(commands);
 }
@@ -1691,7 +1790,10 @@ fn test_mid_strip_insertion_preserves_window_x() {
     )
         .into();
 
-    let harness = TestHarness::new().with_config(config).with_windows(8);
+    let harness = TestHarness::new()
+        .with_config(config)
+        .with_windows(8)
+        .with_command_duration(Duration::from_secs(2));
 
     let commands = vec![
         Event::MenuOpened { window_id: 0 },

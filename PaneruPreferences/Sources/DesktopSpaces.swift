@@ -145,6 +145,24 @@ final class DesktopSpaceController {
         refresh()
     }
 
+    func restart() {
+        guard !busy && !model.applying else { return }
+        busy = true
+        model.engineBusy = true
+        Task {
+            do {
+                try await Task.detached { try Engine.stop() }.value
+                session.request(true)
+            } catch {
+                model.failed = true
+                model.message = error.localizedDescription
+            }
+            busy = false
+            model.engineBusy = false
+            refresh()
+        }
+    }
+
     func policyChanged() {
         session.policyChanged()
         refresh()
@@ -160,15 +178,23 @@ final class DesktopSpaceController {
                 if model.applying { break }
                 pending = false
                 let running = await Task.detached { Engine.isRunning() }.value
+                model.engineRunning = running
+                // A live edit may have started while launchd was being queried.
+                // Resume this policy check after its settings batch finishes.
+                if model.applying { pending = true; break }
                 let preferences = PreferenceFiles.read()
                 let excluded = DesktopSpaces.read().isSuspended(disabled: preferences.disabledSpaceUUIDs)
                 let shouldRun = session.shouldRun(running: running, excluded: excluded)
                 model.setDesktopSuspended(!shouldRun)
                 do {
                     if shouldRun && !running {
+                        model.engineBusy = true
                         try await Task.detached { try Engine.start() }.value
+                        model.engineRunning = true
                     } else if !shouldRun && running {
+                        model.engineBusy = true
                         try await Task.detached { try Engine.stop() }.value
+                        model.engineRunning = false
                     }
                 } catch {
                     model.failed = true
@@ -176,6 +202,7 @@ final class DesktopSpaceController {
                 }
             }
             busy = false
+            model.engineBusy = false
         }
     }
 }

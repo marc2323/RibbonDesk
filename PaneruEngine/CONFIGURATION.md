@@ -23,7 +23,7 @@ General behavior settings for the window manager.
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `focus_follows_mouse` | Boolean | `true` | If enabled, the window under the mouse cursor will automatically gain focus. |
-| `preserve_scroll_until_click` | Boolean | `false` | Keep a manually scrolled viewport through hover, external focus changes, and ordinary clicks. Command-click reveals a managed window on mouse-up with a quick animation. Explicit keyboard focus navigation always reveals its target. Enabled by the native companion's configuration. |
+| `preserve_scroll_until_click` | Boolean | `false` | Keep a manually scrolled viewport through hover, external focus changes, and ordinary clicks. Command-click reveals a managed window on mouse-up with a quick animation. Explicit keyboard focus navigation and window swaps reveal their target, taking over from scrolling. Enabled by the native companion's configuration. |
 | `disabled_spaces` | Array (native Space IDs) | `[]` | Exclude these native macOS desktop Spaces from window discovery and pass global input through while one is active. The companion stores Space identities and resolves these IDs before starting the engine. |
 | `mouse_follows_focus` | Boolean | `true` | If enabled, the mouse cursor will warp to the center of the focused window when focus changes via keyboard. |
 | `horizontal_mouse_warp` | Integer ``(-1, 1)`` | Off | If enabled, the mouse will warp to another screen above or below, when touching the left or right edge. The direction depends on the direction - a negative value will cause the left edge to warp to a screen above and the right edge to a screen below. This allows having horizontal positioning of displays while having them aligned in a virtual layout in macOS settings. The cursor lands at the *opposite* edge of the target display (preserving cursor flow), with the source's relative Y position. Carries pre-warp horizontal velocity to avoid a "standing start", and skips the warp when the equivalent Y has no position on the target — matching macOS's native side-by-side behavior for displays of unequal height. (inspired by https://github.com/mogenson/WarpMouse.spoon) |
@@ -66,10 +66,47 @@ Configure trackpad gestures and scroll-wheel window sliding.
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `sensitivity` | Float (0.1–2.0) | `0.35` | Multiplier for swipe distance. |
-| `deceleration` | Float (1.0–10.0) | `4.0` | Rate at which inertia slows down after a swipe. |
+| `deceleration` | Float (1.0–100.0) | `4.0` | Rate at which inertia slows down after a swipe. |
+| `momentum` | Float (0.0–3.0) | `1.0` | Coast duration multiplier. Zero stops at release and disables flick snapping. |
+| `snap_speed` | Float (0.0–3.0) | `0.0` | Minimum release speed in viewport widths per second to trigger a forward snap. Zero disables flick snapping. |
+| `snap_visible` | Float (0.25–0.95) | `0.55` | Fraction of the destination column that the projected resting position must reveal before snapping. |
+| `three_finger_paging` | Boolean | `false` | Every horizontal three-finger gesture advances one window alignment, including nonstandard widths. Enabled by the settings companion. |
+| `snap_animation` | Float (0.2–4.0) | `1.0` | Snap spring speed multiplier; higher settles faster, independently of the flick threshold. |
+| `snap_full_width` | Boolean | `true` | Snap columns within 90–102% of the viewport width to the leading edge. |
+| `snap_half_width` | Boolean | `false` | Snap columns within 45–55% of viewport width to either edge. Enabled by the settings companion. |
+| `snap_back` | Boolean | `false` | Permit snapping behind current swipe progress, including returning to the starting alignment. |
+| `snap_exit_distance` | Float (0.0–0.5) | `0.12` | With snap_back enabled, projected distance needed to escape the starting alignment, as a fraction of viewport width. Zero removes its return zone. |
 | `continuous` | Boolean | `true` | If `true`, the windows are allowed to fully move across the desktop, potentially exposing the empty desktop space. If `false`, the window strip will not move further than the left or right most window. This also affects the windows during keyboard focus - if `false` the left or right most windows will snap to the edge of display. |
 
+Dragging follows physical input directly. On release, velocity drives an exponential
+coast. A new touch stops it; pausing for 100 ms before lifting cancels the release
+velocity. Modifier scrolling uses the same adjustable coast and consumes the native
+macOS momentum tail to avoid applying inertia twice. Discrete wheels use a short
+input timeout to detect release.
+
+With `three_finger_paging` enabled, every nonzero horizontal three-finger gesture
+commits exactly one adjacent alignment on lift, including slow gestures and pauses.
+Dragging is bounded to that one step; net travel sets the direction after reversals.
+Paging recognizes every column width, including apps with fixed or minimum sizes.
+Columns narrower or wider than the viewport can align to either edge. It ignores
+the free-scroll snap toggles and bypasses sensitivity, momentum, decay, speed/visibility thresholds,
+and snap-back resistance. It retains `snap_animation`, gesture direction, layout
+bounds, and interrupt-on-touch behavior. Other configured finger counts and modifier
+scrolling keep their original behavior. No eligible destination leaves the viewport
+where it began. Disabling paging restores the saved free-scroll settings.
+
+Flick snapping is opt-in and independent of `auto_center` and scroll-position holds.
+For a forward snap, release speed and projected visibility must both pass their
+thresholds. Visibility scales with the destination column's width. By default,
+the target must be ahead of both the gesture origin and current position, so
+snapping never undoes progress. With `snap_back` enabled, candidates may be behind
+the current position, and a gesture starting within 2px of an alignment may return
+there if projected travel stays inside `snap_exit_distance`. Set either `momentum`
+or `snap_speed` to zero to disable all snapping, including returns. A selected
+column settles exactly at its chosen edge, accounting for Dock reservation and gaps.
+
 ### `[swipe.gesture]`
+
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `fingers_count` | Integer | *None* | Number of fingers for the swipe gesture. Set to 3 or more to enable. |

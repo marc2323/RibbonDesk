@@ -1,5 +1,5 @@
 -- Paneru configuration with a native settings companion.
--- Adjust speed, gap, and the active window outline from the menu-bar icon.
+-- Adjust scrolling, gap, and the active window outline from the menu-bar icon.
 -- All window shortcuts use Control + Option.
 local home = os.getenv("HOME")
 local loaded, preferences = pcall(dofile, home .. "/.config/paneru/preferences.lua")
@@ -7,6 +7,17 @@ if not loaded or type(preferences) ~= "table" then preferences = {} end
 local speed = tonumber(preferences.speed) or 0.65
 if speed ~= speed then speed = 0.65 end
 speed = math.max(0.2, math.min(1.5, speed))
+local function scroll_preference(key, default, lower, upper)
+    local value = tonumber(preferences[key]) or default
+    if value ~= value then value = default end
+    return math.max(lower, math.min(upper, value))
+end
+local momentum = scroll_preference("momentum", 1.0, 0.0, 3.0)
+local momentum_decay = scroll_preference("momentum_decay", 4.0, 1.0, 100.0)
+local snap_speed = scroll_preference("snap_speed", 0.8, 0.0, 3.0)
+local snap_visible = scroll_preference("snap_visible", 0.55, 0.25, 0.95)
+local snap_animation = scroll_preference("snap_animation", 1.0, 0.2, 4.0)
+local snap_exit_distance = scroll_preference("snap_exit_distance", 0.12, 0.0, 0.5)
 local gap = tonumber(preferences.gap) or 6
 if gap ~= gap then gap = 6 end
 gap = math.floor(math.max(0, math.min(24, gap)) / 2 + 0.5) * 2
@@ -40,7 +51,16 @@ local config = {
   },
   ["swipe"] = {
     ["sensitivity"] = 0.65,
-    ["deceleration"] = 10.0,
+    ["deceleration"] = momentum_decay,
+    ["momentum"] = momentum,
+    ["snap_speed"] = snap_speed,
+    ["snap_visible"] = snap_visible,
+    ["snap_animation"] = snap_animation,
+    ["snap_full_width"] = preferences.snap_full_width ~= false,
+    ["snap_half_width"] = preferences.snap_half_width ~= false,
+    ["snap_back"] = preferences.snap_back == true,
+    ["snap_exit_distance"] = snap_exit_distance,
+    ["three_finger_paging"] = preferences.three_finger_paging ~= false,
     ["continuous"] = false,
     ["gesture"] = {
       ["fingers_count"] = 3,

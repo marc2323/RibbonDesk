@@ -1,22 +1,47 @@
 # Paneru with native settings
 
 A compact macOS menu-bar companion and a local build of Paneru 0.5.2. The dropdown
-controls activation mode, scroll speed, window gaps, the active window outline,
+controls activation mode, scroll speed, momentum and its decay, flick-snap thresholds and animation, feel presets,
+window gaps, the active window outline,
 and launch at login, with the
-complete Control–Option shortcut list visible without scrolling.
+complete Control–Option shortcut list visible without scrolling. All settings
+apply and persist automatically, including slider changes while dragging; there
+is no Save step. Pause/Start, Restart, and Quit are in Settings; right-click shows only Quit.
 
 - `PaneruPreferences/`: SwiftUI/AppKit companion, click protection, icons, and installer.
 - `PaneruEngine/`: Paneru source with a per-workspace scroll-position hold and regression tests.
 
-Scrolling keeps its natural inertia. Once placed, the viewport stays where the
+Three-finger paging is enabled by default: any horizontal three-finger swipe
+advances exactly one window alignment, following the fingers within that
+step and finishing at lift. Speed, distance, and free-scroll thresholds cannot
+prevent or skip the step. The toggle restores the existing free-scrolling mode,
+and Snap animation controls both modes. Modifier scrolling keeps its free-scroll
+tuning. Existing feel presets restore their original mode; new presets save the toggle.
+Paging includes apps with fixed or minimum widths, such as Tailscale, and can
+align either edge of windows that are narrower or wider than the screen.
+
+Scrolling follows the fingers while dragging, then coasts according to release
+speed and the Momentum slider. A separate Momentum decay slider controls how
+quickly the coast fades, with a 1–100 range; higher values stop sooner. A sufficiently
+fast flick that projects far enough into a full- or half-width window finishes by
+snapping it into view. Half-width windows can align to either edge. Flick threshold
+and Snap visibility tune when snapping starts; Snap animation independently controls
+how quickly it settles. Snap back is off by default, so small swipes keep their progress.
+Enable it and adjust Exit distance to experiment with resistance when leaving an
+aligned window. Named Feel presets save and restore scrolling and snapping together.
+Touch again to stop a fling, or pause before lifting to
+stop in place. Modifier scrolling consumes the native momentum tail so inertia
+is applied once. Once placed, the viewport stays where the
 user left it through hover, repeated focus notifications, and application
 activation and ordinary clicks. **Command-click a managed window** to snap it
 into view on mouse-up with a quick animation (about 150ms). **Previous/Next window
 hotkeys always scroll to the selected window**, even after manual scrolling.
+**Control–Option–J/K** moves the window left/right and scrolls with it to keep
+its new position visible, including after manual scrolling or during a coast.
 Hover and ordinary focus notifications keep the manually chosen viewport.
 
-**Enable on this Desktop** in the menu-bar settings controls each native macOS
-desktop Space separately. Disable it and Save to turn off Paneru's tiling,
+**This Desktop** in the menu-bar settings controls each native macOS
+desktop Space separately. Disable it to turn off Paneru's tiling,
 gestures, activation, click protection, and hotkeys on that desktop. Switching
 back to an enabled desktop resumes Paneru. Re-enable an excluded desktop through
 the menu-bar icon; its settings hotkey is also inactive.
@@ -103,7 +128,7 @@ Additional isolated checks (no desktop/window manipulation):
 
 ```sh
 cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.toml --all-targets
-xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Sources/Preferences.swift PaneruPreferences/Sources/PrivateLogs.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
+xcrun swiftc PaneruPreferences/Sources/DesktopSpaceSession.swift PaneruPreferences/Sources/Preferences.swift PaneruPreferences/Sources/ScrollPresets.swift PaneruPreferences/Sources/PrivateLogs.swift PaneruPreferences/Tests/main.swift -o .build/desktop-policy-tests
 .build/desktop-policy-tests
 ```
 
