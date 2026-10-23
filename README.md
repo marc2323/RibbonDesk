@@ -1,4 +1,4 @@
-# Paneru Settings
+# RibbonDesk
 
 A scrolling ribbon of windows for macOS, with a native menu-bar app and an
 overview for navigating and arranging your whole workspace.
@@ -23,7 +23,7 @@ overview for navigating and arranging your whole workspace.
 **Requirements:** Apple Silicon Mac, macOS 13 or later. The release download
 includes the engine; Rust, Homebrew, and Xcode are not required.
 
-1. Download **Paneru-Settings-1.16-macos-arm64.zip** from the
+1. Download **RibbonDesk-1.16-macos-arm64.zip** from the
    [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.16) and extract it.
 2. If Paneru is running, choose **Quit** in its menu-bar settings first.
 3. Open **Install.command** from the extracted folder. Keep the app, installer,
@@ -115,9 +115,10 @@ in the [development guide](docs/DEVELOPMENT.md).
 
 ## About this repository
 
-This app bundles [Paneru](https://github.com/karinushka/paneru) 0.5.2 with local
-window-management changes. See the [upstream notes](PaneruEngine/UPSTREAM.md)
+RibbonDesk bundles [Paneru](https://github.com/karinushka/paneru) 0.5.2 with local
+window-management changes. The current macOS companion bundle and its permission
+entries are named **Paneru Settings**. See the [upstream notes](PaneruEngine/UPSTREAM.md)
 and [license notices](THIRD_PARTY_NOTICES.txt).
 
-The repository keeps its RibbonDesk name for existing links. The retired
-prototype is preserved under the `ribbondesk-prototype-retired` Git tag.
+The retired prototype is preserved under the `ribbondesk-prototype-retired`
+Git tag.
