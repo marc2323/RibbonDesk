@@ -48,6 +48,7 @@ pub mod layout;
 #[cfg(feature = "lua")]
 pub mod layout_ops;
 pub mod mouse;
+pub(crate) mod overview;
 pub mod params;
 pub(crate) mod restore;
 pub mod script_state;
@@ -211,6 +212,7 @@ pub fn register_systems(app: &mut bevy::app::App) {
 
 /// Registers all the event triggers for the window manager.
 pub fn register_triggers(app: &mut bevy::app::App) {
+    overview::register(app);
     app.add_systems(
         Update,
         (

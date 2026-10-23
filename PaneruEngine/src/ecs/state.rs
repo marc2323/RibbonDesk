@@ -721,6 +721,14 @@ impl QueryState for PaneruQueryState {
                             width: frame.width(),
                             height: frame.height(),
                         }),
+                        ribbon_frame: windows.layout_position(entity).zip(frame).map(
+                            |(position, frame)| Frame {
+                                x: position.0.x + window.horizontal_padding(),
+                                y: position.0.y + window.vertical_padding(),
+                                width: (frame.width() - 2 * window.horizontal_padding()).max(1),
+                                height: (frame.height() - 2 * window.vertical_padding()).max(1),
+                            },
+                        ),
                         visible: visibility.is_some_and(|(_, visible)| visible),
                     })
                 })

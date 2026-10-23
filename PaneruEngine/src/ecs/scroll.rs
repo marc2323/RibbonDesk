@@ -84,10 +84,12 @@ impl Plugin for ScrollEventsPlugin {
             (
                 vertical_swipe_gesture
                     .run_if(mission_control_inactive)
+                    .run_if(super::overview::inactive)
                     .run_if(on_message::<InputEvent>),
                 (
                     swipe_gesture
                         .run_if(mission_control_inactive)
+                        .run_if(super::overview::inactive)
                         .run_if(on_message::<InputEvent>),
                     apply_swipe_paging,
                     apply_flick_snap,

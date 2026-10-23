@@ -760,6 +760,14 @@ impl Config {
         )
     }
 
+    pub fn ribbon_overview(&self) -> bool {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|s| s.ribbon_overview)
+            .unwrap_or(false)
+    }
+
     pub fn swipe_three_finger_paging(&self) -> bool {
         self.inner()
             .swipe

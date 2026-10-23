@@ -1010,3 +1010,34 @@ fn test_set_frame_places_a_floating_window() {
         "and sitting exactly where it was put"
     );
 }
+
+#[test]
+fn query_exposes_unbounded_ribbon_coordinates_for_parked_windows() {
+    let mut harness = crate::tests::TestHarness::new().with_windows(8);
+    harness.run(vec![Event::MenuOpened { window_id: 0 }]);
+    let state = extract_query_state(harness.world()).expect("query state");
+    let windows = &state
+        .virtual_workspaces
+        .iter()
+        .find(|row| row.active)
+        .expect("active row")
+        .windows;
+    let geometry = windows
+        .iter()
+        .map(|window| window.ribbon_frame.expect("ribbon geometry"))
+        .collect::<Vec<_>>();
+    assert_eq!(geometry.len(), 8);
+    assert!(
+        geometry
+            .windows(2)
+            .all(|pair| pair[1].x >= pair[0].x + pair[0].width)
+    );
+    assert!(geometry.last().expect("last window").x > TEST_DISPLAY_WIDTH);
+    assert!(
+        geometry
+            .iter()
+            .all(|frame| frame.width > 0 && frame.height > 0)
+    );
+    let json = serde_json::to_value(&state).expect("JSON");
+    assert!(json["virtual_workspaces"][0]["windows"][0]["ribbon_frame"].is_object());
+}

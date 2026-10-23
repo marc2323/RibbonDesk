@@ -13,6 +13,22 @@ project = Path(sys.argv[1])
 app = Path.home() / 'Applications/Paneru Settings.app'
 executable = str(app / 'Contents/MacOS/PaneruSettings')
 service = f'gui/{os.getuid()}/com.github.karinushka.paneru'
+# Stop the companion first so its Desktop policy cannot restart the engine
+# while the installer is waiting for the old engine to exit.
+companions = []
+for line in subprocess.check_output(['ps', '-axo', 'pid=,args='], text=True).splitlines():
+    parts = line.strip().split(maxsplit=1)
+    if len(parts) == 2 and parts[1] in (executable, executable + ' --background'):
+        companions.append(int(parts[0]))
+        os.kill(int(parts[0]), signal.SIGTERM)
+for _ in range(30):
+    alive = []
+    for pid in companions:
+        try: os.kill(pid, 0); alive.append(pid)
+        except ProcessLookupError: pass
+    if not alive: break
+    time.sleep(0.1)
+else: raise SystemExit('Paneru Settings is still stopping; installation did not replace it.')
 status = subprocess.run(['launchctl', 'print', service], capture_output=True, text=True)
 if 'state = running' in status.stdout:
     engine = app / 'Contents/MacOS/paneru'
@@ -24,10 +40,6 @@ if 'state = running' in status.stdout:
         time.sleep(0.1)
     else: raise SystemExit('Paneru is still stopping; installation did not replace it.')
 subprocess.run(['launchctl', 'bootout', service], capture_output=True)
-for line in subprocess.check_output(['ps', '-axo', 'pid=,args='], text=True).splitlines():
-    parts = line.strip().split(maxsplit=1)
-    if len(parts) == 2 and parts[1] in (executable, executable + ' --background'):
-        os.kill(int(parts[0]), signal.SIGTERM)
 config = Path.home() / '.config/paneru'
 backup = config / 'backups' / ('install-' + datetime.now().strftime('%Y%m%d-%H%M%S'))
 backup.mkdir(parents=True)

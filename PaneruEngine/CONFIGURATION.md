@@ -531,3 +531,52 @@ In addition to static configuration, Lua scripting allows:
 - **Programmatic Layout Transformations (`ws`)**: Pure layout operations (`ws:focus`, `ws:swap`, `ws:float`, `ws:shift`, `ws:view`, etc.) for custom workflows like named scratchpads.
 
 For complete documentation, event specifications, API reference, and examples, see the **[Lua Scripting Guide](./SCRIPTING.md)**.
+
+### Companion ribbon overview
+
+`[swipe] ribbon_overview = true` lets a physical upward three-finger gesture
+request the native companion overview. It defaults to false for standalone
+engine configurations. The companion enables it and binds Control–Option–O to
+`overview show`. While the overview owns input, a downward three-finger gesture
+requests `overview accept`, entering the companion's preview under the cursor.
+The companion resolves the current pointer against its scrolled scene and uses
+the same exact-window focus handoff as a click. Direction locking
+emits one action per gesture; its Dock tail stays owned after the panel closes.
+Excluded Spaces bypass the input tap as before.
+
+The companion uses `send-cmd overview begin <companion-pid>` and `overview end`
+to suspend/resume normal input, `overview focus <window-id>` to reveal an exact
+managed window, and `overview move <window-id> <target-id> before|after` to insert
+an entire column beside another. Missing IDs, different strips, and self-drops
+are ignored. `overview dismiss` asks the companion to close while keeping input
+suspended; Escape uses this cancel path. `overview accept` instead asks it to
+choose the preview under the pointer while retaining ownership. `overview end`
+is its final release and sends no echo notification.
+`overview close <window-id>` presses the exact window's native close button;
+`overview quit-app <window-id>` requests a normal quit of its owning process.
+Both require active overview ownership and membership in the active strip.
+They preserve native save/cancel behavior and rely on OS notifications to remove
+windows. The companion offers selected-window buttons, a preview context menu,
+and Command–W/Command–Q; it reveals the original window if a request leaves it
+open so save dialogs are accessible.
+During an active overview, focus snaps the strip/member geometry behind the
+panel. A one-shot `local.paneru.overview.ready` notification names the selected
+native ID only after the native app reports that ID focused, animations have
+settled, and native geometry matches the committed position. The companion keeps
+the panel until this acknowledgment and any optional animation complete, then
+releases input. A missing owner
+process is detected on the next input event so a crashed companion cannot keep
+normal input suspended.
+
+The overview also owns the separate session-level Dock-control stream for an
+upward three-finger gesture. Raw type-29 touch packets alone do not cancel
+Mission Control: type-30 Dock packets (subtype 23, axis 2) must be consumed through
+finger lift and repeated end packets. Native pinch, horizontal, four-finger and
+unowned vertical sequences remain passthrough. No global Mission Control
+preference is changed. Packet field references:
+https://github.com/noah-nuebling/mac-mouse-fix/blob/master/Helper/Core/Touch/TouchSimulator.m
+
+Query records' optional `ribbon_frame` uses unbounded logical ribbon coordinates,
+with padding removed. This supports one uniform camera transform in the companion
+and preserves gaps, nonstandard widths, and vertical stacks even when native
+window positions have been parked at a screen edge.

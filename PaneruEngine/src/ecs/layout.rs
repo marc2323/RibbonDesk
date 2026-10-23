@@ -638,6 +638,26 @@ impl LayoutStrip {
         self.columns.swap(left, right);
     }
 
+    /// Moves a column beside a target, preserving all intervening columns and groups.
+    pub fn move_beside(&mut self, window: Entity, target: Entity, after: bool) -> bool {
+        let (Ok(source), Ok(destination)) = (self.index_of(window), self.index_of(target)) else {
+            return false;
+        };
+        if source == destination {
+            return false;
+        }
+        let insertion = destination + usize::from(after);
+        let insertion = insertion - usize::from(source < insertion);
+        if source == insertion {
+            return false;
+        }
+        if let Some(column) = self.columns.remove(source) {
+            self.columns.insert(insertion, column);
+            return true;
+        }
+        false
+    }
+
     /// Returns the number of panels in the pane.
     ///
     /// # Returns
@@ -1590,6 +1610,7 @@ fn position_layout_windows(
     positioned_windows: RepositionedWindows,
     workspaces: StripsForWindowPositioning,
     snap_guards: Query<&SnapStripMarker>,
+    overview_handoffs: Query<&super::overview::OverviewHandoff>,
     displays: DisplayViewports,
     config: Res<Config>,
     mut commands: Commands,
@@ -1598,7 +1619,10 @@ fn position_layout_windows(
     let (_, pad_right, _, pad_left) = config.edge_padding();
     let mut strip_contexts = EntityHashMap::default();
     for (strip_entity, layout_strip, Position(strip_position), swiping, child_of) in &workspaces {
-        let snap_settling = snap_guards.iter().any(|guard| guard.strip == strip_entity);
+        let snap_settling = snap_guards.iter().any(|guard| guard.strip == strip_entity)
+            || overview_handoffs
+                .iter()
+                .any(|handoff| handoff.strip == strip_entity);
         insert_strip_window_contexts(
             &mut strip_contexts,
             layout_strip,

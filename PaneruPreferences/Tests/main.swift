@@ -189,3 +189,14 @@ assert(pagingRoundTrip == pagingPreferences && pagingRoundTrip.validated.threeFi
 assert(pagingPreferences.luaSource(disabledSpaceIDs: []).contains("three_finger_paging = true"))
 assert(pagingPreferences.scrollTuning != tuned.scrollTuning)
 print("Three-finger paging: live-config export, preference migration, preset migration and mode roundtrip passed.")
+
+assert(!legacy.overviewAnimation && !Preferences.defaults.overviewAnimation)
+var animatedOverview = custom
+animatedOverview.overviewAnimation = true
+let animatedRoundTrip = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(animatedOverview))
+assert(animatedRoundTrip.overviewAnimation && animatedRoundTrip.validated.overviewAnimation)
+assert(animatedOverview.scrollTuning == custom.scrollTuning, "The overview toggle must not reload scrolling or change feel presets")
+var presetApplication = animatedOverview
+presetApplication.scrollTuning = tuned.scrollTuning
+assert(presetApplication.overviewAnimation)
+print("Overview animation preference: instant migration/default, persistence, validation and preset independence passed.")

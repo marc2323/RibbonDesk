@@ -47,6 +47,9 @@ pub struct SwipeOptions {
     /// Overrides free-scroll tuning for those gestures only. Default: false.
     pub three_finger_paging: Option<bool>,
 
+    /// Three-finger upward swipe opens the native companion overview.
+    pub ribbon_overview: Option<bool>,
+
     /// Swiping keeps sliding windows until the first or last window.
     /// Set to false to clamp so edge windows stay on-screen. Default: true.
     #[allow(dead_code)]

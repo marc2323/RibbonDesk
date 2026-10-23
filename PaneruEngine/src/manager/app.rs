@@ -7,6 +7,7 @@ use core::ptr::NonNull;
 use crossbeam_channel::Sender;
 use derive_more::{DerefMut, with_trait::Deref};
 use mockall::automock;
+use objc2_app_kit::NSRunningApplication;
 use objc2_core_foundation::{CFRetained, CFString, kCFRunLoopCommonModes};
 use std::ffi::c_void;
 use std::pin::Pin;
@@ -139,6 +140,8 @@ pub trait ApplicationApi: Send + Sync {
     fn bundle_id(&self) -> Option<String>;
     /// Returns the display name of the application.
     fn name(&self) -> &str;
+    /// Send a normal quit request; the application may ask to save or refuse.
+    fn request_quit(&self) -> bool;
 }
 
 /// A wrapper struct for `ApplicationApi` trait objects, allowing for dynamic dispatch.
@@ -397,6 +400,11 @@ impl ApplicationApi for ApplicationOS {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn request_quit(&self) -> bool {
+        NSRunningApplication::runningApplicationWithProcessIdentifier(self.pid)
+            .is_some_and(|app| app.terminate())
     }
 }
 

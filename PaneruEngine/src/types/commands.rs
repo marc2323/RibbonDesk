@@ -292,6 +292,29 @@ pub enum MouseMove {
     ToNextDisplay,
 }
 
+/// Controls the companion's ribbon overview. Window targets are stable native IDs.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverviewCommand {
+    Show,
+    /// Ask the companion to close while retaining input ownership until End.
+    Dismiss,
+    /// Enter the companion's window under the pointer, retaining input ownership.
+    Accept,
+    Begin(i32),
+    End,
+    Focus(i32),
+    /// Request a normal close of this exact window while overview owns input.
+    Close(i32),
+    /// Request a graceful quit of the application owning this exact window.
+    QuitApp(i32),
+    Move {
+        window: i32,
+        target: i32,
+        after: bool,
+    },
+}
+
 /// Represents a command that can be issued to the window manager.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -312,4 +335,5 @@ pub enum Command {
     /// Window-addressed, unlike every other command here, and applied
     /// best-effort: see `ecs::layout_ops`. Never produced by parsing.
     Layout(Vec<crate::types::windowset::LayoutOp>),
+    Overview(OverviewCommand),
 }

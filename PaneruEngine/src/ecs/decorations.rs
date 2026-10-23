@@ -146,6 +146,7 @@ pub(crate) fn overlay_motion_dirty(
 pub(crate) struct OverlayChanges<'w, 's> {
     config: Option<Res<'w, Config>>,
     mission_control: Res<'w, MissionControlActive>,
+    overview: Option<Res<'w, super::overview::OverviewActive>>,
     theme: Option<Res<'w, SystemTheme>>,
     workspaces: WorkspaceChanges<'w, 's>,
     focused: FocusChanges<'w, 's>,
@@ -189,6 +190,10 @@ pub(crate) fn overlay_dirty(mut changes: OverlayChanges) -> bool {
     changes.settling.is_changed()
         || config.is_changed()
         || changes.mission_control.is_changed()
+        || changes
+            .overview
+            .as_ref()
+            .is_some_and(DetectChanges::is_changed)
         || changes
             .theme
             .as_ref()

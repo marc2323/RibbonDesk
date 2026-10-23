@@ -46,6 +46,61 @@ gestures, activation, click protection, and hotkeys on that desktop. Switching
 back to an enabled desktop resumes Paneru. Re-enable an excluded desktop through
 the menu-bar icon; its settings hotkey is also inactive.
 
+## Ribbon overview
+
+Swipe **up with three fingers**, press **Control–Option–O**, or click **Overview**
+in Settings while window management is active. The ribbon zooms out as one scene,
+preserving its window widths, heights, stacks, gaps and order. The overview uses
+one-third scale, with horizontal scrolling for long ribbons. The initial view
+stays near the current viewport. Scroll with
+two fingers or a mouse wheel, use the bottom track/arrows, or select windows with
+the arrow keys. The menu bar remains visible under the existing macOS setting.
+
+Previews are still snapshots. Click a window to zoom into its real position and
+resume normal interaction. Swipe **down with three fingers** to enter the window
+currently under your cursor (or the selected preview when over the background).
+Escape or the background returns to the original viewport. **J/K** moves the
+highlighted window left/right while keeping it selected and visible; the usual
+Control–Option–J/K shortcuts also work. Arrow keys select a different preview.
+Drag onto the left/right half of another window to insert before/after
+it. Holding a drag near either screen edge scrolls the overview. Stacks and native
+tab groups move together; order changes apply immediately.
+
+**Close Window (⌘W)** and **Quit App (⌘Q)** below the selected preview also work
+without entering it; right-click a preview for the same actions. Closing targets
+that exact native window. Quitting affects its owning app and its other windows.
+Overview stays open as windows disappear and selects a nearby survivor. If an
+app keeps the requested window open, overview reveals it after a short wait so
+you can handle a save confirmation or cancellation.
+
+Use **Allow Window Previews…** to allow Screen Recording for **Paneru Settings**.
+Protected content can remain blank. On macOS 14+ ScreenCaptureKit takes one-shot
+screenshots; macOS 13 stops a temporary stream after one frame. Only visible
+windows and a small margin are requested, with at most two captures in flight.
+Previews freeze until reopening (or reloading a distant, evicted preview).
+A 64 MiB memory cache makes repeat opens immediate; cached images may briefly
+show the previous snapshot while refreshing. Capture never blocks presentation,
+records audio, or writes files. Closing discards pending deliveries. Nothing
+captures or polls while closed.
+
+Overview transitions are instant by default. Enable **Overview animation** under
+Window management to restore the 160 ms zoom. The choice is saved separately
+from scroll feel presets and does not restart or reload the engine. Reduce Motion
+also disables the zoom. Viewport culling and geometry-only subscription refreshes
+keep layout work bounded as the ribbon grows.
+
+On selection, the opaque overview stays above the desktop while the engine snaps
+the ribbon to the selected window. The engine acknowledges the exact native focus
+and final position before the companion removes the panel and resumes hover and
+normal input. This avoids exposing intermediate windows during the handoff.
+
+The vertical gesture override uses both raw touch input and a separate session
+interceptor for WindowServer's Dock-control packets (event 30, dock-swipe subtype
+23, vertical axis 2). Owning the complete packet sequence prevents native Mission
+Control from taking over after the raw finger events end. Native keyboard/hot
+corner Mission Control still works. Paused management and excluded Desktops
+bypass the override. Horizontal three-finger paging retains its original path.
+
 ## Build and install
 
 Requires macOS 13+, Apple's command-line developer tools, and Rust 1.95.0 with
@@ -101,6 +156,27 @@ registration, and the compact popup with every shortcut visible. Registration
 changes left the running engine untouched. Launch at login was left enabled;
 the user's 0.35 speed, 4-point gap, and Mouse over mode were preserved. Login
 registration was checked without logging the user out.
+
+Overview revision 1.15 passed all 476 Rust tests, strict Clippy, formatting,
+the Swift camera/hit-testing and reorder-queue checks, and a Swift build with
+warnings treated as errors. Native checks on 2026-10-23 verified J to move left,
+Control–Option–K to move right, stable selection after a move, and cursor-based
+entry while keyboard selection and the original native focus pointed to two
+other windows. The accept command exercised the same companion path requested
+by a downward swipe; a physical trackpad gesture was not synthesized. Test window
+order and focus were restored. Installed 1.15 (16) matches the signed build, and
+saved preferences are unchanged.
+
+Overview revision 1.16 passed 478 Rust tests, strict Clippy, formatting, Swift
+selection/camera checks, a warnings-as-errors companion build, and an offscreen
+render. Native checks used only the disposable `OverviewActionsFixture` app:
+the Close button, Command–W, and context menu each closed exactly one requested
+window while overview stayed open. Command–Q and the Quit button terminated that
+app, including all four windows in the latter check. A simulated save sheet
+exposed a modal-focus acknowledgment edge case; the close/quit recovery now
+uncovers the app with a bounded fallback, and Cancel kept the test window open.
+The fixture was quit, user window order/focus restored, and preferences preserved.
+Installed 1.16 (17) matches the signed build.
 
 ## Local hardening and efficiency
 

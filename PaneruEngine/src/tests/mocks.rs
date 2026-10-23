@@ -93,6 +93,8 @@ struct MockStateInner {
     /// window server still reports them on screen: a background native tab.
     background_tabs: HashSet<WinID>,
     native_tab_queries: (usize, usize),
+    close_requests: Vec<WinID>,
+    quit_requests: Vec<Pid>,
 }
 
 #[derive(Clone)]
@@ -115,12 +117,19 @@ impl MockState {
                 unordered_windows: HashSet::new(),
                 background_tabs: HashSet::new(),
                 native_tab_queries: (0, 0),
+                close_requests: Vec::new(),
+                quit_requests: Vec::new(),
             })),
         }
     }
 
     pub fn native_tab_queries(&self) -> (usize, usize) {
         self.inner.force_read().native_tab_queries
+    }
+
+    pub fn window_action_requests(&self) -> (Vec<WinID>, Vec<Pid>) {
+        let inner = self.inner.force_read();
+        (inner.close_requests.clone(), inner.quit_requests.clone())
     }
 
     #[allow(dead_code)]
@@ -595,6 +604,11 @@ impl MockState {
         // Fill in remaining defaults
         mw.expect_element().return_const(None);
         mw.expect_raise_without_focus().return_const(());
+        let s = self.clone();
+        mw.expect_request_close().returning(move || {
+            s.inner.force_write().close_requests.push(id);
+            Ok(())
+        });
 
         // Focusing without raising still moves the OS focus, it just leaves the
         // window order alone. Only the app's idea of its focused window changes
@@ -659,6 +673,11 @@ impl MockState {
             .map(|a| a.name.clone())
             .unwrap();
         ma.expect_name().return_const(name);
+        let s = self.clone();
+        ma.expect_request_quit().returning(move || {
+            s.inner.force_write().quit_requests.push(pid);
+            true
+        });
 
         let s = self.clone();
         ma.expect_is_frontmost().returning(move || {

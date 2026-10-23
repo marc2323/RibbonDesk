@@ -28,6 +28,7 @@ use crate::config::swipe::SwipeGestureDirection;
 use crate::errors::{Error, Result};
 use crate::events::{Event, EventSender};
 use crate::platform::Modifiers;
+use crate::types::commands::OverviewCommand;
 
 const NX_DEVICEFNKEYMASK: u64 = 0x0080_0100;
 
@@ -104,6 +105,9 @@ pub fn set_lua_keybinds(keys: Vec<(u8, Modifiers, u32)>) {
 
 const SWIPE_THRESHOLD: f64 = 0.001;
 const GESTURE_MINIMAL_FINGERS: usize = 3;
+// WindowServer emits Dock gestures separately from AppKit's raw touch events.
+// Field meanings are documented by Mac Mouse Fix's TouchSimulator.m.
+const DOCK_CONTROL_EVENT: u32 = 30;
 
 /// Outcome of an event tap health check.
 ///
@@ -126,8 +130,13 @@ pub(super) struct InputHandler {
     config: Config,
     /// The previous event's fingers, for swipe gesture detection.
     finger_position: Option<Vec<Touch>>,
+    overview_swipe: OverviewSwipe,
     /// The `CFMachPort` representing the `CGEventTap`.
     tap_port: Option<CFRetained<CFMachPort>>,
+    dock_tap_port: Option<CFRetained<CFMachPort>>,
+    dock_run_loop_source: Option<CFRetained<CFRunLoopSource>>,
+    dock_swipe: DockSwipeGuard,
+    last_overview_swipe: Option<(Instant, OverviewAxis)>,
     /// Run loop source feeding `tap_port`. Retained so the tap can be torn down
     /// and rebuilt when macOS invalidates the mach port across a sleep cycle.
     run_loop_source: Option<CFRetained<CFRunLoopSource>>,
@@ -166,7 +175,12 @@ impl InputHandler {
             events: Some(events),
             config,
             finger_position: None,
+            overview_swipe: OverviewSwipe::default(),
             tap_port: None,
+            dock_tap_port: None,
+            dock_run_loop_source: None,
+            dock_swipe: DockSwipeGuard::default(),
+            last_overview_swipe: None,
             run_loop_source: None,
             last_swipe_time: None,
             last_window_scroll: None,
@@ -241,10 +255,98 @@ impl InputHandler {
 
         self.tap_port = Some(port);
         self.run_loop_source = Some(run_loop_source);
+        if let Err(error) = self.install_dock_tap(this) {
+            self.uninstall_tap();
+            return Err(error);
+        }
         Ok(())
     }
 
+    fn install_dock_tap(&mut self, this: *mut Self) -> Result<()> {
+        let port = unsafe {
+            CGEvent::tap_create(
+                CGEventTapLocation::SessionEventTap,
+                CGEventTapPlacement::HeadInsertEventTap,
+                CGEventTapOptions::Default,
+                1 << DOCK_CONTROL_EVENT,
+                Some(Self::dock_callback),
+                this.cast(),
+            )
+        }
+        .ok_or_else(|| Error::PermissionDenied("Unable to intercept Dock gestures".into()))?;
+        let (source, run_loop) = CFMachPort::new_run_loop_source(None, Some(&port), 0)
+            .zip(CFRunLoop::main())
+            .ok_or_else(|| Error::PermissionDenied("Unable to observe Dock gestures".into()))?;
+        CFRunLoop::add_source(&run_loop, Some(&source), unsafe { kCFRunLoopCommonModes });
+        self.dock_tap_port = Some(port);
+        self.dock_run_loop_source = Some(source);
+        Ok(())
+    }
+
+    extern "C-unwind" fn dock_callback(
+        _: CGEventTapProxy,
+        event_type: CGEventType,
+        event: NonNull<CGEvent>,
+        this: *mut c_void,
+    ) -> *mut CGEvent {
+        let Some(this) = NonNull::new(this) else {
+            return event.as_ptr();
+        };
+        let this = unsafe { this.cast::<Self>().as_mut() };
+        if matches!(
+            event_type,
+            CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
+        ) {
+            if let Some(port) = &this.dock_tap_port {
+                CGEvent::tap_enable(port, true);
+            }
+        } else if event_type.0 == DOCK_CONTROL_EVENT
+            && this.handle_dock_swipe(unsafe { event.as_ref() })
+        {
+            return null_mut();
+        }
+        event.as_ptr()
+    }
+
+    fn handle_dock_swipe(&mut self, event: &CGEvent) -> bool {
+        if !self.config.ribbon_overview() || self.config.disabled_space_is_visible() {
+            self.dock_swipe = DockSwipeGuard::default();
+            return false;
+        }
+        let field = |id| CGEvent::double_value_field(Some(event), CGEventField(id));
+        let raw_three = self
+            .finger_position
+            .as_ref()
+            .is_some_and(|fingers| fingers.len() == 3);
+        let recent_direction = self
+            .last_overview_swipe
+            .filter(|(time, _)| time.elapsed() < VERTICAL_GESTURE_SCROLL_SUPPRESS)
+            .map(|(_, axis)| axis);
+        let overview_active = crate::ecs::overview::input_is_active();
+        let physical_vertical = recent_direction.is_some()
+            || self.overview_swipe.y < 0.0
+                && self.overview_swipe.y.abs() > self.overview_swipe.x.abs()
+            || overview_active && raw_three;
+        self.dock_swipe.consume(
+            field(110),
+            field(123),
+            if physical_vertical { 0.0 } else { field(124) },
+            field(132),
+            recent_direction.is_some()
+                || raw_three && (overview_active || self.overview_swipe.axis != OverviewAxis::Down),
+        )
+    }
+
     fn uninstall_tap(&mut self) {
+        if let Some(source) = self.dock_run_loop_source.take()
+            && let Some(run_loop) = CFRunLoop::main()
+        {
+            CFRunLoop::remove_source(&run_loop, Some(&source), unsafe { kCFRunLoopCommonModes });
+        }
+        if let Some(port) = self.dock_tap_port.take() {
+            CGEvent::tap_enable(&port, false);
+            CFMachPort::invalidate(&port);
+        }
         if let Some(run_loop_source) = self.run_loop_source.take()
             && let Some(main_loop) = CFRunLoop::main()
         {
@@ -272,12 +374,16 @@ impl InputHandler {
             return self.rebuild_tap();
         };
 
-        if CGEvent::tap_is_enabled(&port) {
+        let Some(dock) = self.dock_tap_port.clone().filter(|port| port.is_valid()) else {
+            return self.rebuild_tap();
+        };
+        if CGEvent::tap_is_enabled(&port) && CGEvent::tap_is_enabled(&dock) {
             return TapHealth::Healthy;
         }
 
         CGEvent::tap_enable(&port, true);
-        if CGEvent::tap_is_enabled(&port) {
+        CGEvent::tap_enable(&dock, true);
+        if CGEvent::tap_is_enabled(&port) && CGEvent::tap_is_enabled(&dock) {
             warn!("event tap was disabled, re-enabled it");
             TapHealth::Reenabled
         } else {
@@ -360,10 +466,30 @@ impl InputHandler {
             // Pass every event to macOS, including configured hotkeys and
             // strip gestures, even during the engine's shutdown interval.
             self.finger_position = None;
+            self.overview_swipe = OverviewSwipe::default();
             self.last_swipe_time = None;
             self.last_window_scroll = None;
             self.owned_scroll = None;
             return false;
+        }
+
+        if crate::ecs::overview::input_is_active() {
+            if event_type == CGEventType::KeyDown
+                && CGEvent::integer_value_field(Some(event), CGEventField::KeyboardEventKeycode)
+                    == 53
+            {
+                if let Some(events) = &self.events {
+                    _ = events.send(Event::Command {
+                        command: Command::Overview(OverviewCommand::Dismiss),
+                    });
+                }
+                return true;
+            }
+            // The overlay owns clicks, dragging and keyboard navigation. Do not
+            // feed them back into hover activation or normal ribbon commands.
+            if u64::from(event_type.0) != NSEventType::Gesture.0 as u64 {
+                return false;
+            }
         }
 
         let Some(events) = &self.events else {
@@ -567,19 +693,30 @@ impl InputHandler {
                 }
                 _ = events.send(Event::TouchpadUp);
                 self.finger_position = None;
-                return false;
+                let consumed = self.overview_swipe.axis == OverviewAxis::Up
+                    || self.overview_swipe.axis == OverviewAxis::Down
+                        && self
+                            .last_overview_swipe
+                            .is_some_and(|(_, axis)| axis == OverviewAxis::Down);
+                self.overview_swipe = OverviewSwipe::default();
+                return consumed;
             }
 
             let fingers = Touch::sample(&ns_event.allTouches());
+            if fingers.iter().any(|finger| finger.began) {
+                self.last_overview_swipe = None;
+            }
             if !gesture_should_intercept(Some(configured_fingers), fingers.len()) {
                 if self.finger_position.take().is_some()
                     && let Some(events) = &self.events
                 {
                     _ = events.send(Event::TouchpadUp);
                 }
+                self.overview_swipe = OverviewSwipe::default();
                 return false;
             }
             if fingers.iter().any(|finger| finger.began) {
+                self.overview_swipe = OverviewSwipe::default();
                 // A fresh gesture: nothing carries over from the last one.
                 if let Some(events) = &self.events {
                     _ = events.send(Event::TouchpadDown);
@@ -604,35 +741,9 @@ impl InputHandler {
                     })
                     .unzip();
 
-                if let Some(events) = &self.events {
-                    let x_sum: f64 = x_deltas.iter().sum();
-                    let y_sum: f64 = y_deltas.iter().sum();
-
-                    if x_sum.abs() >= y_sum.abs() {
-                        // Horizontal dominant: use existing swipe path
-                        if horizontal_swipe_detected(
-                            &x_deltas,
-                            self.config.swipe_three_finger_paging(),
-                        ) {
-                            _ = events.send(Event::Swipe {
-                                delta: x_sum,
-                                fingers: x_deltas.len(),
-                            });
-                            self.last_swipe_time = Some(Instant::now());
-                        }
-                    } else if y_deltas.iter().all(|p| p.abs() > SWIPE_THRESHOLD) {
-                        if !self.config.swipe_vertical() {
-                            // Do not intercept the vertical swipe
-                            return false;
-                        }
-                        // Vertical dominant: send vertical swipe, intercept the event
-                        _ = events.send(Event::VerticalSwipe {
-                            delta: y_sum,
-                            fingers: y_deltas.len(),
-                        });
-                        self.last_swipe_time = Some(Instant::now());
-                    }
-                }
+                let intercept = self.handle_gesture_delta(&x_deltas, &y_deltas, configured_fingers);
+                self.finger_position = Some(fingers);
+                return intercept;
             }
             self.finger_position = Some(fingers);
 
@@ -640,6 +751,68 @@ impl InputHandler {
             // to prevent it from being interpreted as a scroll by the OS.
             true
         })
+    }
+
+    fn handle_gesture_delta(
+        &mut self,
+        x_deltas: &[f64],
+        y_deltas: &[f64],
+        configured_fingers: usize,
+    ) -> bool {
+        let Some(events) = &self.events else {
+            return false;
+        };
+        let x_sum: f64 = x_deltas.iter().sum();
+        let y_sum: f64 = y_deltas.iter().sum();
+        let overview_active = crate::ecs::overview::input_is_active();
+        if self.config.ribbon_overview() && configured_fingers == 3 && x_deltas.len() == 3 {
+            if let Some(action) =
+                self.overview_swipe
+                    .action(x_sum / 3.0, y_sum / 3.0, overview_active)
+            {
+                _ = events.send(Event::Command {
+                    command: Command::Overview(action),
+                });
+                self.last_swipe_time = Some(Instant::now());
+                self.last_overview_swipe = Some((Instant::now(), self.overview_swipe.axis));
+            }
+            match self.overview_swipe.axis {
+                OverviewAxis::Pending | OverviewAxis::Up => return true,
+                OverviewAxis::Down
+                    if overview_active
+                        || self
+                            .last_overview_swipe
+                            .is_some_and(|(_, axis)| axis == OverviewAxis::Down) =>
+                {
+                    return true;
+                }
+                OverviewAxis::Down if !self.config.swipe_vertical() => return false,
+                OverviewAxis::Horizontal if x_sum.abs() < y_sum.abs() => return true,
+                _ => {}
+            }
+        }
+        if crate::ecs::overview::input_is_active() {
+            return true;
+        }
+        if x_sum.abs() >= y_sum.abs() {
+            if horizontal_swipe_detected(x_deltas, self.config.swipe_three_finger_paging()) {
+                _ = events.send(Event::Swipe {
+                    delta: x_sum,
+                    fingers: x_deltas.len(),
+                });
+                self.last_swipe_time = Some(Instant::now());
+            }
+        } else if y_deltas.iter().all(|p| p.abs() > SWIPE_THRESHOLD) {
+            if !self.config.swipe_vertical() {
+                return false;
+            }
+            _ = events.send(Event::VerticalSwipe {
+                delta: y_sum,
+                fingers: y_deltas.len(),
+            });
+            self.last_swipe_time = Some(Instant::now());
+        }
+        true
     }
 
     /// Handles key press events. It determines the modifier mask and attempts to find a matching keybinding in the configuration.
@@ -691,6 +864,89 @@ impl InputHandler {
                     .ok()
             })
             .is_some()
+    }
+}
+
+/// Once claimed, keep every Dock packet, including reversals and duplicate
+/// end packets after the raw touches disappear. Four-finger/native gestures
+/// never acquire ownership without a matching raw three-finger gesture.
+#[derive(Default)]
+struct DockSwipeGuard {
+    owned: bool,
+}
+impl DockSwipeGuard {
+    #[allow(
+        clippy::float_cmp,
+        reason = "CGEvent's floating accessor carries exact integer protocol tags here"
+    )]
+    fn consume(
+        &mut self,
+        subtype: f64,
+        axis: f64,
+        progress: f64,
+        phase: f64,
+        eligible: bool,
+    ) -> bool {
+        if subtype != 23.0 || axis != 2.0 {
+            return false;
+        }
+        if phase == 1.0 {
+            self.owned = false;
+        }
+        // Raw touches can end before the Dock emits its final packet. Once
+        // owned, release only at the next sequence's Began (or an explicit
+        // config/Space bypass in handle_dock_swipe), never at raw finger lift.
+        if eligible && progress >= 0.0 {
+            self.owned = true;
+        }
+        self.owned
+    }
+}
+
+/// Lock direction using accumulated physical movement, independent of scroll
+/// direction settings. Each vertical gesture can emit only one overview action.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum OverviewAxis {
+    #[default]
+    Pending,
+    Horizontal,
+    Up,
+    Down,
+}
+#[derive(Default)]
+struct OverviewSwipe {
+    x: f64,
+    y: f64,
+    axis: OverviewAxis,
+}
+impl OverviewSwipe {
+    fn advance(&mut self, x: f64, y: f64) -> bool {
+        if self.axis != OverviewAxis::Pending {
+            return false;
+        }
+        self.x += x;
+        self.y += y;
+        if self.x.abs() > 0.012 && self.x.abs() > self.y.abs() * 1.25 {
+            self.axis = OverviewAxis::Horizontal;
+        } else if self.y.abs() > 0.035 && self.y.abs() > self.x.abs() * 1.25 {
+            self.axis = if self.y < 0.0 {
+                OverviewAxis::Up
+            } else {
+                OverviewAxis::Down
+            };
+            return true;
+        }
+        false
+    }
+    fn action(&mut self, x: f64, y: f64, overview_active: bool) -> Option<OverviewCommand> {
+        if !self.advance(x, y) {
+            return None;
+        }
+        match self.axis {
+            OverviewAxis::Up => Some(OverviewCommand::Show),
+            OverviewAxis::Down if overview_active => Some(OverviewCommand::Accept),
+            _ => None,
+        }
     }
 }
 
@@ -1187,5 +1443,112 @@ mod tests {
         assert!(gesture_should_intercept(Some(3), 3));
         assert!(!gesture_should_intercept(Some(4), 3));
         assert!(gesture_should_intercept(Some(4), 4));
+    }
+}
+
+#[cfg(test)]
+mod overview_tests {
+    use super::*;
+    #[test]
+    fn upward_swipe_accumulates_and_fires_once() {
+        let mut swipe = OverviewSwipe::default();
+        assert!(!swipe.advance(0.001, -0.02));
+        assert!(swipe.advance(0.001, -0.02));
+        assert!(!swipe.advance(0.0, -0.2));
+    }
+    #[test]
+    fn horizontal_or_downward_gestures_do_not_open_overview() {
+        let mut horizontal = OverviewSwipe::default();
+        assert!(!horizontal.advance(0.03, -0.002));
+        assert!(!horizontal.advance(0.0, -0.3));
+        let mut down = OverviewSwipe::default();
+        assert!(down.action(0.001, 0.05, false).is_none());
+        assert!(down.axis == OverviewAxis::Down);
+    }
+    #[test]
+    fn downward_swipe_accepts_once_only_while_overview_is_active() {
+        let mut swipe = OverviewSwipe::default();
+        assert!(swipe.action(0.001, 0.02, true).is_none());
+        assert_eq!(
+            swipe.action(0.001, 0.02, true),
+            Some(OverviewCommand::Accept)
+        );
+        assert!(swipe.action(0.0, 0.3, true).is_none());
+        assert!(
+            swipe.action(0.0, -0.4, false).is_none(),
+            "A reversing tail cannot reopen the overview"
+        );
+        let mut outside = OverviewSwipe::default();
+        assert!(outside.action(0.0, 0.05, false).is_none());
+        let mut up = OverviewSwipe::default();
+        assert_eq!(up.action(0.0, -0.05, false), Some(OverviewCommand::Show));
+    }
+}
+
+#[cfg(test)]
+mod dock_overview_tests {
+    use super::*;
+    #[test]
+    fn decodes_native_dock_control_fields_and_owns_tail_after_raw_lift() {
+        let (sender, _) = EventSender::new();
+        let config = Config::try_from("[swipe]\nribbon_overview = true\n").expect("config");
+        let mut handler = InputHandler::new(sender, config);
+        handler.last_overview_swipe = Some((Instant::now(), OverviewAxis::Up));
+        let event = CGEvent::new(None).expect("local packet, never posted");
+        CGEvent::set_type(Some(&event), CGEventType(DOCK_CONTROL_EVENT));
+        for (field, value) in [(110, 23.0), (123, 2.0), (124, 0.4), (132, 1.0)] {
+            CGEvent::set_double_value_field(Some(&event), CGEventField(field), value);
+        }
+        assert!(handler.handle_dock_swipe(&event));
+        handler.finger_position = None;
+        handler.overview_swipe = OverviewSwipe::default();
+        handler.last_overview_swipe = None;
+        for phase in [2.0, 4.0, 4.0] {
+            CGEvent::set_double_value_field(Some(&event), CGEventField(132), phase);
+            assert!(handler.handle_dock_swipe(&event));
+        }
+        CGEvent::set_double_value_field(Some(&event), CGEventField(123), 1.0);
+        assert!(!handler.handle_dock_swipe(&event));
+    }
+    #[test]
+    fn dismissal_owns_downward_dock_packets_after_the_panel_has_closed() {
+        let (sender, _) = EventSender::new();
+        let config = Config::try_from("[swipe]\nribbon_overview = true\n").expect("config");
+        let mut handler = InputHandler::new(sender, config);
+        handler.last_overview_swipe = Some((Instant::now(), OverviewAxis::Down));
+        let event = CGEvent::new(None).expect("local packet, never posted");
+        CGEvent::set_type(Some(&event), CGEventType(DOCK_CONTROL_EVENT));
+        for (field, value) in [(110, 23.0), (123, 2.0), (124, -0.4)] {
+            CGEvent::set_double_value_field(Some(&event), CGEventField(field), value);
+        }
+        for phase in [1.0, 2.0, 4.0, 4.0] {
+            CGEvent::set_double_value_field(Some(&event), CGEventField(132), phase);
+            assert!(handler.handle_dock_swipe(&event));
+        }
+        handler.last_overview_swipe = None;
+        CGEvent::set_double_value_field(Some(&event), CGEventField(132), 1.0);
+        assert!(
+            !handler.handle_dock_swipe(&event),
+            "A fresh native downward gesture still passes through"
+        );
+    }
+
+    #[test]
+    fn consumes_separate_dock_begin_change_end_and_repeated_end() {
+        let mut dock = DockSwipeGuard::default();
+        for (progress, phase) in [(0.0, 1.0), (0.3, 2.0), (-0.01, 2.0), (0.0, 4.0), (0.0, 4.0)] {
+            assert!(dock.consume(23.0, 2.0, progress, phase, true));
+        }
+    }
+    #[test]
+    fn leaves_native_unrelated_disabled_and_four_finger_gestures_alone() {
+        let mut dock = DockSwipeGuard::default();
+        assert!(!dock.consume(23.0, 2.0, 0.1, 1.0, false));
+        assert!(!dock.consume(23.0, 1.0, 0.1, 1.0, true));
+        assert!(!dock.consume(8.0, 3.0, 0.1, 1.0, true));
+        assert!(!dock.consume(23.0, 2.0, -0.1, 1.0, true));
+        assert!(dock.consume(23.0, 2.0, 0.1, 1.0, true));
+        assert!(dock.consume(23.0, 2.0, 0.2, 4.0, false));
+        assert!(!dock.consume(23.0, 2.0, 0.2, 1.0, false));
     }
 }

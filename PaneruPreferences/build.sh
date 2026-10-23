@@ -8,7 +8,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$output/module-cache"
 engine="$workspace/.build/paneru-engine/fast-release/paneru"
 [[ -x "$engine" ]] || { print -u2 'Build the engine first with PaneruEngine/build.sh.'; exit 1; }
 cp "$engine" "$app/Contents/MacOS/paneru"
-xcrun swiftc -swift-version 5 -O -module-cache-path "$output/module-cache" \
+xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" -O -module-cache-path "$output/module-cache" \
     "$project"/Sources/*.swift -o "$app/Contents/MacOS/PaneruSettings"
 python3 - "$app" <<'PY'
 import plistlib,sys,pathlib
@@ -17,7 +17,7 @@ p.write_bytes(plistlib.dumps({
  'CFBundleIdentifier':'local.paneru.preferences',
  'CFBundleName':'Paneru Settings','CFBundleDisplayName':'Paneru Settings',
  'CFBundleExecutable':'PaneruSettings','CFBundlePackageType':'APPL',
- 'CFBundleShortVersionString':'1.10','CFBundleVersion':'11',
+ 'CFBundleShortVersionString':'1.16','CFBundleVersion':'17',
  'LSUIElement':True,'LSMinimumSystemVersion':'13.0',
  'CFBundleIconFile':'Paneru.icns','NSHighResolutionCapable':True,
  'NSHumanReadableCopyright':'Local Paneru preferences companion. Paneru engine by its contributors.'

@@ -802,6 +802,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
         snap_back: _,
         snap_exit_distance: _,
         three_finger_paging: _,
+        ribbon_overview: _,
         continuous: _,
         gesture: _,
         scroll: _,
@@ -818,6 +819,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     swipe.set("snap_back", config.swipe_snap_back())?;
     swipe.set("snap_exit_distance", config.swipe_snap_exit_distance())?;
     swipe.set("three_finger_paging", config.swipe_three_finger_paging())?;
+    swipe.set("ribbon_overview", config.ribbon_overview())?;
     swipe.set("continuous", config.continuous_swipe())?;
 
     let GestureOptions {
