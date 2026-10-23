@@ -23,7 +23,7 @@ final class ActivationClickGuard {
     func configure(for mode: FocusMode) throws {
         guard mode == .click else { stop(); return }
         guard Self.isAuthorized else {
-            throw CommandFailure(message: "Allow Accessibility for Paneru Settings to use Click mode.")
+            throw CommandFailure(message: "Allow Accessibility for RibbonDesk to use Click mode.")
         }
         if let tap { CGEvent.tapEnable(tap: tap, enable: true); return }
 
@@ -41,7 +41,7 @@ final class ActivationClickGuard {
             return guardObject.handle(type, event: event)
         }, userInfo: Unmanaged.passUnretained(self).toOpaque()),
               let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            throw CommandFailure(message: "Click protection could not start. Check Accessibility for Paneru Settings.")
+            throw CommandFailure(message: "Click protection could not start. Check Accessibility for RibbonDesk.")
         }
         self.tap = tap
         self.source = source

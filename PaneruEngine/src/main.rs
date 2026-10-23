@@ -93,10 +93,10 @@ pub enum SubCmd {
     /// Reinstalls the `paneru` background service.
     Reinstall,
 
-    /// Installs a Paneru app launcher to `~/Applications`.
+    /// Installs a `RibbonDesk` engine app launcher to `~/Applications`.
     InstallApp,
 
-    /// Uninstalls the Paneru app launcher from `~/Applications`.
+    /// Uninstalls the `RibbonDesk` engine app launcher from `~/Applications`.
     UninstallApp,
 
     /// Starts the `paneru` background service.
@@ -255,7 +255,7 @@ fn wait_for_accessibility(sender: EventSender, receiver: &Receiver<Event>) -> bo
     }
 
     warn!(
-        "Accessibility access is required. Paneru will remain in the menu bar and start automatically once access is granted."
+        "Accessibility access is required. RibbonDesk will remain in the menu bar and start automatically once access is granted."
     );
 
     loop {

@@ -4,21 +4,20 @@ project="${0:A:h}"
 workspace="${project:h}"
 zsh "$workspace/PaneruEngine/build.sh"
 zsh "$project/build.sh"
-python3 - "$project" <<'PY'
+python3 - <<'PY'
 from pathlib import Path
-from datetime import datetime
-import os, shutil, signal, subprocess, sys, time
+import os, signal, subprocess, time
 
-project = Path(sys.argv[1])
-app = Path.home() / 'Applications/Paneru Settings.app'
-executable = str(app / 'Contents/MacOS/PaneruSettings')
+app = Path.home() / 'Applications/RibbonDesk.app'
+legacy = Path.home() / 'Applications/Paneru Settings.app'
+executables = [str(app / 'Contents/MacOS/RibbonDesk'), str(legacy / 'Contents/MacOS/PaneruSettings')]
 service = f'gui/{os.getuid()}/com.github.karinushka.paneru'
 # Stop the companion first so its Desktop policy cannot restart the engine
 # while the installer is waiting for the old engine to exit.
 companions = []
 for line in subprocess.check_output(['ps', '-axo', 'pid=,args='], text=True).splitlines():
     parts = line.strip().split(maxsplit=1)
-    if len(parts) == 2 and parts[1] in (executable, executable + ' --background'):
+    if len(parts) == 2 and any(parts[1] in (executable, executable + ' --background') for executable in executables):
         companions.append(int(parts[0]))
         os.kill(int(parts[0]), signal.SIGTERM)
 for _ in range(30):
@@ -28,28 +27,18 @@ for _ in range(30):
         except ProcessLookupError: pass
     if not alive: break
     time.sleep(0.1)
-else: raise SystemExit('Paneru Settings is still stopping; installation did not replace it.')
+else: raise SystemExit('RibbonDesk is still stopping; installation did not replace it.')
 status = subprocess.run(['launchctl', 'print', service], capture_output=True, text=True)
 if 'state = running' in status.stdout:
     engine = app / 'Contents/MacOS/paneru'
+    if not engine.exists(): engine = legacy / 'Contents/MacOS/paneru'
     if not engine.exists(): engine = Path('/opt/homebrew/bin/paneru')
     subprocess.run([str(engine), 'send-cmd', 'quit'], timeout=8, check=True)
     for _ in range(50):
         status = subprocess.run(['launchctl', 'print', service], capture_output=True, text=True)
         if 'state = running' not in status.stdout: break
         time.sleep(0.1)
-    else: raise SystemExit('Paneru is still stopping; installation did not replace it.')
+    else: raise SystemExit('The window engine is still stopping; installation did not replace it.')
 subprocess.run(['launchctl', 'bootout', service], capture_output=True)
-config = Path.home() / '.config/paneru'
-backup = config / 'backups' / ('install-' + datetime.now().strftime('%Y%m%d-%H%M%S'))
-backup.mkdir(parents=True)
-for name in ['init.lua', 'preferences.json', 'preferences.lua']:
-    if (config / name).exists(): shutil.copy2(config / name, backup / name)
-shutil.copy2(project / 'paneru-init.lua', config / 'init.lua')
-app.parent.mkdir(exist_ok=True)
-subprocess.run(['ditto', str(project.parent / '.build/paneru-preferences/Paneru Settings.app'), str(app)], check=True)
-subprocess.run(['codesign', '--verify', '--strict', str(app)], check=True)
-print('Installed:', app)
-print('Previous config:', backup)
 PY
-print -r -- 'Open Paneru Settings to start the engine and menu-bar app.'
+zsh "$project/Scripts/install-app.sh" "$workspace/.build/paneru-preferences/RibbonDesk.app" "$project/paneru-init.lua"

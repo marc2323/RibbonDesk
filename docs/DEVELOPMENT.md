@@ -32,9 +32,10 @@ zsh PaneruPreferences/install.sh
 
 The source installer builds both components, stops the companion before the
 engine so Desktop policy cannot relaunch the old helper, then installs
-`~/Applications/Paneru Settings.app`. It backs up the Lua configuration and
-preserves saved preferences. Open the installed app to start the companion and
-engine, and complete the normal macOS Accessibility setup.
+`~/Applications/RibbonDesk.app`. It backs up the Lua configuration and
+preserves saved preferences. It also migrates the old `Paneru Settings.app` into
+the backup directory with a `.backup` suffix. Open the installed app to start
+the companion and engine, and complete the normal macOS Accessibility setup.
 
 To build without installing:
 
@@ -43,10 +44,25 @@ zsh PaneruEngine/build.sh
 zsh PaneruPreferences/build.sh
 ```
 
-The app bundle is written to `.build/paneru-preferences/Paneru Settings.app`.
-The build targets the current Mac’s architecture; v1.16’s published binary is
-arm64. Use the [release download](https://github.com/marc2323/RibbonDesk/releases/tag/v1.16)
+The app bundle is written to `.build/paneru-preferences/RibbonDesk.app`.
+The build targets the current Mac’s architecture; the published binary is
+arm64. Use the [release download](https://github.com/marc2323/RibbonDesk/releases/latest)
 for the prebuilt app and installer.
+
+To package a built, signed app from a clean commit:
+
+```sh
+zsh PaneruPreferences/Scripts/package-release.sh
+```
+
+This writes the versioned RibbonDesk ZIP, build manifest, and checksums under
+`.build/releases/`. The packaged `Install.command` and source installer share
+[the same installation script](../PaneruPreferences/Scripts/install-app.sh).
+After building, verify fresh installs and upgrades without changing your app:
+
+```sh
+python3 PaneruPreferences/Tests/test_install.py
+```
 
 ### Local signing
 
@@ -55,7 +71,7 @@ The build retains the configured signing identity from
 The signing helpers are in [PaneruPreferences/Scripts](../PaneruPreferences/Scripts).
 If no signing configuration exists, the ordinary build uses ad-hoc signing.
 
-The published v1.16 app is signed with a local development certificate and is
+The published app is signed with a local development certificate and is
 not Apple-notarized. Signing keys are kept outside this repository. Build and
 installation scripts do not edit macOS trust, quarantine, or permission databases.
 
@@ -63,7 +79,7 @@ installation scripts do not edit macOS trust, quarantine, or permission database
 
 | Location | Purpose |
 | --- | --- |
-| `~/Applications/Paneru Settings.app` | Installed companion. |
+| `~/Applications/RibbonDesk.app` | Installed companion. |
 | `Contents/MacOS/paneru` inside the app | Bundled engine; the Homebrew executable remains a fallback. |
 | `~/.config/paneru/preferences.json` | Saved UI preferences. |
 | `~/.config/paneru/preferences.lua` | Preferences exported for the engine configuration. |
@@ -71,6 +87,11 @@ installation scripts do not edit macOS trust, quarantine, or permission database
 | `~/.config/paneru/scroll-presets.json` | Saved feel presets. |
 | `~/.config/paneru/backups/` | Installer backups. |
 | `~/Library/Logs/Paneru` | Engine output and error logs. |
+
+The visible app and engine names are RibbonDesk. Bundle/signing identifiers,
+IPC names, and the existing `paneru` storage paths remain stable for upgrades.
+The engine remains named `paneru` on disk for CLI compatibility. macOS may cache
+an older permission entry’s name until it refreshes; installers do not reset grants.
 
 The companion starts one engine through the on-demand LaunchAgent
 `com.github.karinushka.paneru`. Login registration belongs to the companion;
@@ -216,6 +237,19 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 ```
 
 ### Release validation record
+
+**v1.17 (build 18)** retains the v1.16 window-management behavior and renames the
+installed app, interface, and embedded engine metadata to RibbonDesk. It passed
+478 Rust tests, strict Clippy and formatting, Swift warnings-as-errors compilation,
+command-runner and preference/preset checks, and six isolated installer checks.
+The latter cover fresh installs, legacy/mixed upgrades, app/configuration backups,
+settings preservation, and refusal to replace unrelated apps.
+
+Native checks confirmed both running processes report RibbonDesk, the engine runs
+from the new app path, and the app appears as RibbonDesk in Accessibility, Screen
+Recording, and Open at Login. Existing grants, login registration, saved settings,
+and window order survived the rename. Certificate-bound requirements for the app
+and engine match the previous build. Permission grants were not reset.
 
 The published **v1.16 (build 17)** passed **478 Rust tests**, strict Clippy,
 formatting, Swift regression checks, a warnings-as-errors companion build, and

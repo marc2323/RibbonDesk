@@ -1,4 +1,4 @@
--- Paneru configuration with a native settings companion.
+-- RibbonDesk configuration with its native menu-bar app.
 -- Adjust scrolling, gap, and the active window outline from the menu-bar icon.
 -- All window shortcuts use Control + Option.
 local home = os.getenv("HOME")
@@ -94,7 +94,7 @@ local config = {
     ["menu"] = {
       ["descriptor"] = {
         ["style"] = "hidden",
-        ["text"] = "Paneru",
+        ["text"] = "RibbonDesk",
       },
     },
   },
@@ -124,7 +124,7 @@ paneru.bind("ctrl + alt - t", "window manage")
 paneru.bind("ctrl + alt - q", "quit")
 paneru.bind("ctrl + alt - o", "overview show")
 paneru.bind("ctrl + alt - s", function()
-    paneru.exec("/usr/bin/open", {"-a", home .. "/Applications/Paneru Settings.app"})
+    paneru.exec("/usr/bin/open", {"-a", home .. "/Applications/RibbonDesk.app"})
 end)
 
 -- Exact width commands use the usable viewport, including Dock reservation.
