@@ -123,6 +123,9 @@ pub struct WindowState {
     pub display_id: Option<u32>,
     /// Frame in global display coordinates, when known.
     pub frame: Option<Frame>,
+    /// Unbounded ribbon geometry, independent of macOS parking and scrolling.
+    #[serde(default)]
+    pub ribbon_frame: Option<Frame>,
     /// Whether the window is meaningfully on screen right now: not minimized or
     /// hidden, and showing more than the sliver Paneru leaves poking out for
     /// off-screen windows.
@@ -289,6 +292,7 @@ mod tests {
                     width: 800,
                     height: 600,
                 }),
+                ribbon_frame: None,
                 visible: true,
             }],
             active: ActiveState::default(),
@@ -322,6 +326,7 @@ mod tests {
                 width: 100,
                 height: 100,
             }),
+            ribbon_frame: None,
             visible,
         };
 

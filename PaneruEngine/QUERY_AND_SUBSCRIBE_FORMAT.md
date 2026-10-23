@@ -235,3 +235,11 @@ window_virtualnum_3 = "cmd + alt - 3"
 window_virtualmovenum_3 = "cmd + alt + ctrl - 3"
 window_virtualsendnum_3 = "cmd + alt + shift - 3"
 ```
+
+### Logical ribbon geometry
+
+Window records additionally include optional `ribbon_frame` (`x`, `y`, `width`,
+`height`). These are unbounded strip-local coordinates with window padding
+removed, so previews can preserve the real ribbon geometry without depending on
+macOS's parked offscreen frames. The existing `frame` remains the global native
+position. Older payloads without this optional field still decode.

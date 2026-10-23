@@ -48,7 +48,8 @@ impl Plugin for MouseEventsPlugin {
                     mouse_resize_trigger,
                     mouse_down_trigger,
                 )
-                    .run_if(mission_control_inactive),
+                    .run_if(mission_control_inactive)
+                    .run_if(super::overview::inactive),
                 mouse_up_trigger,
                 horizontal_warp_mouse_trigger,
             )

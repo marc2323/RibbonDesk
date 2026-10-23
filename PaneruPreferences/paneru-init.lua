@@ -60,6 +60,7 @@ local config = {
     ["snap_half_width"] = preferences.snap_half_width ~= false,
     ["snap_back"] = preferences.snap_back == true,
     ["snap_exit_distance"] = snap_exit_distance,
+    ["ribbon_overview"] = true,
     ["three_finger_paging"] = preferences.three_finger_paging ~= false,
     ["continuous"] = false,
     ["gesture"] = {
@@ -121,6 +122,7 @@ paneru.bind("ctrl + alt - home", "window focus first")
 paneru.bind("ctrl + alt - end", "window focus last")
 paneru.bind("ctrl + alt - t", "window manage")
 paneru.bind("ctrl + alt - q", "quit")
+paneru.bind("ctrl + alt - o", "overview show")
 paneru.bind("ctrl + alt - s", function()
     paneru.exec("/usr/bin/open", {"-a", home .. "/Applications/Paneru Settings.app"})
 end)

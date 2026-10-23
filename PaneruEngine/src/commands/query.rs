@@ -206,7 +206,7 @@ pub(super) fn register_query_commands(app: &mut App) {
 /// set. Both live in one system so only one system holds [`QueryStateParams`]'s
 /// world access. The window set is a separate variant rather than folded into
 /// [`StateQueryKind`] since it projects a different value (the layout tree).
-fn state_query_handler(mut messages: MessageReader<Event>, state: QueryStateParams) {
+pub(crate) fn state_query_handler(mut messages: MessageReader<Event>, state: QueryStateParams) {
     /// Sends an answer without ever waiting for it to be taken. The reply
     /// channel holds one message and exactly one is sent, so this cannot fill;
     /// a client that hung up in the meantime is simply gone.
@@ -552,6 +552,7 @@ mod tests {
                     width: 800,
                     height: 600,
                 }),
+                ribbon_frame: None,
                 visible: true,
             })
             .collect();

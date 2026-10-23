@@ -4,6 +4,7 @@ mod harness;
 mod interaction;
 mod mocks;
 mod outline;
+mod overview;
 mod scroll_momentum;
 mod session_restore;
 mod state;

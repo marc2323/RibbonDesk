@@ -5,7 +5,7 @@
 //! together here and are checked against each other by round-trip tests.
 
 use crate::types::commands::{
-    Command, Direction, MouseMove, MoveFocus, Operation, ResizeDirection,
+    Command, Direction, MouseMove, MoveFocus, Operation, OverviewCommand, ResizeDirection,
     parse_virtual_workspace_number,
 };
 
@@ -43,12 +43,38 @@ type Result<T> = std::result::Result<T, ParseError>;
 pub fn parse_command(argv: &[&str]) -> Result<Command> {
     let command = *argv.first().unwrap_or(&"");
     Ok(match command {
+        "overview" => Command::Overview(parse_overview(&argv[1..])?),
         "printstate" => Command::PrintState,
         "window" => Command::Window(parse_operation(&argv[1..])?),
         "mouse" => Command::Mouse(parse_mouse_move(&argv[1..])?),
         "quit" => Command::Quit,
         "restart" => Command::Restart,
         _ => return Err(ParseError::new(format!("unhandled command '{argv:?}'"))),
+    })
+}
+
+fn parse_overview(argv: &[&str]) -> Result<OverviewCommand> {
+    let id = |index: usize| {
+        argv.get(index)
+            .and_then(|value| value.parse::<i32>().ok())
+            .filter(|value| *value >= 0)
+            .ok_or_else(|| ParseError::invalid(argv))
+    };
+    Ok(match argv {
+        ["show"] => OverviewCommand::Show,
+        ["dismiss"] => OverviewCommand::Dismiss,
+        ["accept"] => OverviewCommand::Accept,
+        ["begin", _] if id(1)? > 0 => OverviewCommand::Begin(id(1)?),
+        ["end"] => OverviewCommand::End,
+        ["focus", _] => OverviewCommand::Focus(id(1)?),
+        ["close", _] => OverviewCommand::Close(id(1)?),
+        ["quit-app", _] => OverviewCommand::QuitApp(id(1)?),
+        ["move", _, _, edge @ ("before" | "after")] => OverviewCommand::Move {
+            window: id(1)?,
+            target: id(2)?,
+            after: *edge == "after",
+        },
+        _ => return Err(ParseError::invalid(argv)),
     })
 }
 
@@ -168,6 +194,35 @@ impl Command {
             Command::Quit => vec!["quit".to_string()],
             Command::Restart => vec!["restart".to_string()],
             Command::PrintState => vec!["printstate".to_string()],
+            Command::Overview(command) => match command {
+                OverviewCommand::Show => vec!["overview".into(), "show".into()],
+                OverviewCommand::Dismiss => vec!["overview".into(), "dismiss".into()],
+                OverviewCommand::Accept => vec!["overview".into(), "accept".into()],
+                OverviewCommand::Begin(pid) => {
+                    vec!["overview".into(), "begin".into(), pid.to_string()]
+                }
+                OverviewCommand::End => vec!["overview".into(), "end".into()],
+                OverviewCommand::Focus(id) => {
+                    vec!["overview".into(), "focus".into(), id.to_string()]
+                }
+                OverviewCommand::Close(id) => {
+                    vec!["overview".into(), "close".into(), id.to_string()]
+                }
+                OverviewCommand::QuitApp(id) => {
+                    vec!["overview".into(), "quit-app".into(), id.to_string()]
+                }
+                OverviewCommand::Move {
+                    window,
+                    target,
+                    after,
+                } => vec![
+                    "overview".into(),
+                    "move".into(),
+                    window.to_string(),
+                    target.to_string(),
+                    if *after { "after" } else { "before" }.into(),
+                ],
+            },
             Command::Lua(_) | Command::Layout(_) => return None,
         };
         Some(argv)
@@ -235,6 +290,41 @@ mod tests {
         let argv = command.to_argv().expect("command should encode to argv");
         let borrowed: Vec<&str> = argv.iter().map(String::as_str).collect();
         parse_command(&borrowed).unwrap_or_else(|err| panic!("re-parsing {argv:?}: {err}"))
+    }
+
+    #[test]
+    fn overview_commands_round_trip_and_reject_invalid_targets() {
+        for action in [
+            OverviewCommand::Show,
+            OverviewCommand::Dismiss,
+            OverviewCommand::Accept,
+            OverviewCommand::Begin(123),
+            OverviewCommand::End,
+            OverviewCommand::Focus(0),
+            OverviewCommand::Close(42),
+            OverviewCommand::QuitApp(42),
+            OverviewCommand::Move {
+                window: 14,
+                target: 8,
+                after: true,
+            },
+            OverviewCommand::Move {
+                window: 8,
+                target: 14,
+                after: false,
+            },
+        ] {
+            let command = Command::Overview(action);
+            assert_eq!(round_trip(&command), command);
+        }
+        for args in [
+            vec!["overview", "begin", "0"],
+            vec!["overview", "focus", "-1"],
+            vec!["overview", "move", "1", "2", "sideways"],
+            vec!["overview", "end", "extra"],
+        ] {
+            assert!(parse_command(&args).is_err());
+        }
     }
 
     #[test]

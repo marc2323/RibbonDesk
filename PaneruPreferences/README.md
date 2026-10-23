@@ -94,6 +94,7 @@ Hold **Control + Option**:
 | R | Toggle half / full width |
 | T | Toggle floating |
 | Home / End | First / last window |
+| O | Ribbon Overview (also three-finger swipe up) |
 | S | Open settings |
 | Q | Pause window management |
 
@@ -105,6 +106,80 @@ Either Command key works in Mouse over and Click modes. **Previous/Next and
 First/Last hotkeys always reveal their target**, taking over from manual scrolling.
 **J/K follows the moved window** into its new position and stops any active coast.
 Another trackpad scroll restores the hold; hover and activation keep it in place.
+
+## Ribbon overview
+
+Swipe up with three fingers on an enabled Desktop, use Control–Option–O, or click
+Overview under Window management. A single camera preserves the ribbon's logical
+geometry, including offscreen windows, unequal widths, gaps and vertical stacks.
+The overview uses one-third scale and scrolls horizontally. Very short displays
+can impose a smaller scale to fit the ribbon's height. Opening starts
+near the current viewport. Two-finger scrolling, either wheel axis, the bottom
+track/arrows, and keyboard selection all navigate the zoomed-out ribbon.
+The panel stays below the menu bar without changing macOS presentation settings.
+
+Click a preview or swipe down with three fingers to enter the real window under
+the pointer. With the pointer over the background, the selected preview is used.
+Escape or the background cancels to the original viewport. Plain J/K and
+Control–Option–J/K arrange the hovered or keyboard-selected window left/right.
+Repeated steps are serialized against fresh engine order and keep the moved
+window selected and visible; stationary hover events do not steal selection.
+Arrow keys select another preview. Whole stack/tab columns move together. Drag onto either half of
+another window to insert before/after it; the teal marker shows the insertion edge. Holding a drag near
+an edge scrolls the overview. Groups stay together and changes apply immediately.
+
+Use **Close Window (⌘W)** or **Quit App (⌘Q)** below the highlighted preview to
+close that window or quit its owning app, including the app's other windows.
+The same actions are available by right-clicking a preview. Overview stays open
+as windows disappear and selects a nearby survivor. Requests use the native
+close button and normal app termination. If the original window remains open,
+overview enters it after a short wait so save confirmations can be handled.
+
+Previews freeze after a one-shot screenshot; regular app interaction resumes on
+selection. ScreenCaptureKit's screenshot manager is used on macOS 14+. On macOS
+13, a temporary stream stops after one frame or a one-second timeout. Screen
+Recording permission is required; use Allow Window Previews if needed. No audio
+or files are recorded. Protected content may be blank.
+
+Presentation never waits for capture. A 64 MiB decoded-image LRU cache supplies
+warm previews while visible windows refresh once per opening. Only visible
+windows plus a small margin are captured, with two requests maximum in flight.
+Panning replaces queued requests; stale sessions cannot deliver results. Distant
+previews can be evicted and recaptured when returning. A single scene transform,
+viewport culling and geometry-only subscription queries avoid
+per-frame layout and live-content work. No capture or polling runs while closed.
+
+**Overview animation** under Window management defaults off for instant switching.
+Enabling it restores the 160 ms zoom; Reduce Motion disables it. This preference
+persists independently of feel presets and never reloads the engine.
+
+Click, swipe, and Return selection use a native handoff acknowledgment. The engine snaps strip/member
+positions behind the opaque panel, verifies the selected application's focused
+window and reads back its native position. Only then can the panel disappear.
+Hover and other ribbon input remain suspended until the companion releases
+ownership. Animation and native readiness can complete in either order. A failed
+handoff keeps the overview visible with a retry message rather than revealing an
+unconfirmed target. Release does not echo a close notification into a new session.
+Close/quit confirmation recovery allows a bounded fallback after requesting native
+focus, since a modal sheet can own focus instead of the original window. It
+uncovers the application within roughly one second even without that parent's
+readiness acknowledgment; ordinary entry retains the strict gate.
+
+The engine intercepts the separate Dock-control event stream as well as raw
+three-finger touches. This prevents Mission Control's later packets from closing
+the overview. Keyboard and hot-corner Mission Control remain native. Desktop
+changes and engine shutdown dismiss the overlay and release capture resources.
+
+Checks run without moving desktop windows or starting capture:
+
+```sh
+xcrun swiftc -swift-version 5 PaneruPreferences/Sources/RibbonSnapshot.swift PaneruPreferences/Tests/Overview/main.swift -o .build/ribbon-overview-tests
+.build/ribbon-overview-tests
+xcrun swiftc -swift-version 5 -target arm64-apple-macos13.0 PaneruPreferences/Sources/RibbonSnapshot.swift PaneruPreferences/Sources/RibbonPreviewCapture.swift PaneruPreferences/Tests/PreviewCapture/main.swift -o .build/ribbon-preview-tests
+.build/ribbon-preview-tests
+xcrun swiftc -swift-version 5 PaneruPreferences/Sources/CommandRunner.swift PaneruPreferences/Tests/CommandRunner/main.swift -o .build/command-runner-tests
+.build/command-runner-tests
+```
 
 ## Runtime and build
 
@@ -123,6 +198,8 @@ without resetting their speed, gap, or focus mode.
 
 Build the engine with `zsh PaneruEngine/build.sh`, then the companion with
 `zsh PaneruPreferences/build.sh`, or run `zsh PaneruPreferences/install.sh` for both.
+The installer stops the companion before the engine to avoid the Desktop policy
+relaunching the old helper during replacement.
 Builds use the configured local signing identity without changing certificate
 trust. Signing scripts and public identity selection now belong to this app;
 no original RibbonDesk runtime is needed.

@@ -13,6 +13,7 @@ struct SettingsView: View {
         ("Toggle half / full", "R"),
         ("Toggle floating", "T"),
         ("First / last window", "Home / End"),
+        ("Ribbon Overview", "O"),
         ("Open settings", "S"),
         ("Pause window management", "Q")
     ]
@@ -114,10 +115,14 @@ struct SettingsView: View {
                 Button("Restart") { model.restartEngineAction?() }
                     .accessibilityLabel("Restart Paneru")
                     .disabled(!model.currentDesktopEnabled)
+                Button("Overview") { model.overviewAction?() }
+                    .disabled(!model.engineRunning || !model.currentDesktopEnabled)
+                    .help("See and rearrange the whole ribbon (Control–Option–O).")
                 Spacer(minLength: 0)
                 Button("Quit") { model.quitAction?() }
                     .accessibilityLabel("Quit Paneru")
             }.frame(height: 22).disabled(model.applying || model.engineBusy)
+            toggleRow("Overview animation", detail: "Off switches instantly", value: $model.overviewAnimation)
             if !model.currentDesktopEnabled { caption("Enable This Desktop to start window management here.") }
         }
     }

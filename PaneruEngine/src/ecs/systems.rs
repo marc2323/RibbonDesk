@@ -996,6 +996,7 @@ pub(super) fn update_overlays(
     // builds whose scheduler uses worker threads. Tests need no native manager.
     _overlay_mgr: Option<NonSend<OverlayManager>>,
     mission_control_active: Res<MissionControlActive>,
+    overview: Option<Res<super::overview::OverviewActive>>,
     config: Res<Config>,
     motion: Res<OverlayMotion>,
     window_manager: Res<WindowManager>,
@@ -1019,7 +1020,10 @@ pub(super) fn update_overlays(
         return OverlayState::Hidden;
     };
 
-    if mission_control_active.0 || active_strip.is_fullscreen() {
+    if mission_control_active.0
+        || overview.is_some_and(|state| state.0)
+        || active_strip.is_fullscreen()
+    {
         return OverlayState::Hidden;
     }
 

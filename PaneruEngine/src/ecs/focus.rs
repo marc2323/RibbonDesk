@@ -310,6 +310,7 @@ fn detect_focus_rejection(
 #[allow(clippy::too_many_arguments)]
 fn autocenter_window_on_focus(
     focused: Single<Entity, Added<FocusedMarker>>,
+    overview: Option<Res<super::overview::OverviewActive>>,
     mouse_held: Query<&MouseHeldMarker>,
     restored: Query<&RestoreFocusMarker>,
     held_offsets: Query<&LayoutStrip, With<super::ScrollPositionHold>>,
@@ -317,6 +318,11 @@ fn autocenter_window_on_focus(
     active_display: ActiveDisplay,
     mut ctx: WindowCtx,
 ) {
+    // Consume the focus change while covered. A run condition would defer the
+    // Added<FocusedMarker> change until overview release, causing a late move.
+    if overview.is_some_and(|overview| overview.0) {
+        return;
+    }
     let entity = *focused;
     if held_offsets.iter().any(|strip| strip.contains(entity)) {
         return;

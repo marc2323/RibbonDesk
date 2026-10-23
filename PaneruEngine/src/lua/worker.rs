@@ -638,6 +638,7 @@ mod tests {
                     floating: false,
                     display_id: Some(1),
                     frame: None,
+                    ribbon_frame: None,
                     visible: true,
                 }],
             }],

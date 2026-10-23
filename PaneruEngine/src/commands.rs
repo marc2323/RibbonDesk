@@ -10,7 +10,7 @@ use bevy::math::IRect;
 use tracing::{Level, instrument};
 use tracing::{debug, error, info};
 
-mod query;
+pub(crate) mod query;
 
 use crate::config::Config;
 use crate::config::snippet::{RuleSubject, SnippetDialect, window_rule_snippet};

@@ -44,24 +44,7 @@ enum Engine {
 
     @discardableResult
     static func run(_ arguments: [String], executable: String = binary, timeout: Double = 5) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in finished.signal() }
-        try process.run()
-        guard finished.wait(timeout: .now() + timeout) == .success else {
-            process.terminate()
-            throw CommandFailure(message: "Paneru did not respond in time.")
-        }
-        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard process.terminationStatus == 0 else {
-            throw CommandFailure(message: String(text.prefix(500)).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return text
+        try CommandRunner.run(arguments, executable: executable, timeout: timeout)
     }
 
     static func isRunning() -> Bool {
@@ -182,6 +165,7 @@ final class SettingsModel: ObservableObject {
     @Published var snapBack: Bool { didSet { preferenceChanged() } }
     @Published var snapExitDistance: Double { didSet { preferenceChanged() } }
     @Published var threeFingerPaging: Bool { didSet { preferenceChanged() } }
+    @Published var overviewAnimation: Bool { didSet { preferenceChanged() } }
     @Published var gap: Double { didSet { preferenceChanged() } }
     @Published var focusMode: FocusMode { didSet { preferenceChanged() } }
     @Published var launchAtLogin: Bool { didSet { preferenceChanged() } }
@@ -196,6 +180,7 @@ final class SettingsModel: ObservableObject {
     @Published var engineBusy = false { didSet { engineActivityChanged?(engineBusy) } }
     var engineActivityChanged: ((Bool) -> Void)?
     var toggleEngineAction: (() -> Void)?
+    var overviewAction: (() -> Void)?
     var restartEngineAction: (() -> Void)?
     var quitAction: (() -> Void)?
     @Published var applying = false
@@ -268,6 +253,7 @@ final class SettingsModel: ObservableObject {
         snapBack = preferences.snapBack
         snapExitDistance = preferences.snapExitDistance
         threeFingerPaging = preferences.threeFingerPaging
+        overviewAnimation = preferences.overviewAnimation
         gap = Double(preferences.gap)
         focusMode = preferences.focusMode
         launchAtLogin = preferences.launchAtLogin
@@ -299,7 +285,7 @@ final class SettingsModel: ObservableObject {
                     snapAnimation: (snapAnimation * 100).rounded() / 100,
                     snapFullWidth: snapFullWidth, snapHalfWidth: snapHalfWidth, snapBack: snapBack,
                     snapExitDistance: (snapExitDistance * 100).rounded() / 100,
-                    threeFingerPaging: threeFingerPaging).validated
+                    threeFingerPaging: threeFingerPaging, overviewAnimation: overviewAnimation).validated
     }
 
     var borderColor: Color {
@@ -361,6 +347,7 @@ final class SettingsModel: ObservableObject {
         snapBack = value.snapBack
         snapExitDistance = value.snapExitDistance
         threeFingerPaging = value.threeFingerPaging
+        overviewAnimation = value.overviewAnimation
         gap = Double(value.gap)
         focusMode = value.focusMode
         launchAtLogin = value.launchAtLogin
@@ -495,9 +482,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let contextMenu = NSMenu()
     private let model = SettingsModel()
     private lazy var desktops = DesktopSpaceController(model: model)
+    private let overview = RibbonOverviewController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        overview.canShow = { [weak self] in
+            guard let self else { return false }
+            return self.model.engineRunning && !self.model.engineBusy && !self.model.applying
+                && !DesktopSpaces.read().isSuspended(disabled: PreferenceFiles.read().disabledSpaceUUIDs)
+        }
+        overview.willShow = { [weak self] in self?.popover.performClose(nil) }
+        overview.animateTransitions = { [weak self] in self?.model.overviewAnimation ?? false }
         let controller = NSHostingController(rootView: SettingsView(model: model)
             .onExitCommand { [weak self] in self?.popover.performClose(nil) })
         controller.sizingOptions = [.preferredContentSize]
@@ -521,8 +516,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
             if busy, self.popover.isShown { self.popover.behavior = .applicationDefined }
             else if !busy { self.restorePopoverAfterOperation() }
         }
-        model.toggleEngineAction = { [weak self] in self?.desktops.setRequested(!(self?.model.engineRunning ?? false)) }
-        model.restartEngineAction = { [weak self] in self?.desktops.restart() }
+        model.toggleEngineAction = { [weak self] in self?.overview.close(); self?.desktops.setRequested(!(self?.model.engineRunning ?? false)) }
+        model.restartEngineAction = { [weak self] in self?.overview.close(); self?.desktops.restart() }
+        model.overviewAction = { [weak self] in self?.overview.show() }
         model.quitAction = { [weak self] in self?.quitAll() }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = Icon.menu
@@ -571,6 +567,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     }
 
     @objc func openSettings() {
+        overview.close()
         guard let button = item.button else { return }
         if !popover.isShown {
             model.refresh()
@@ -602,8 +599,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return false
     }
 
+    func applicationWillTerminate(_ notification: Notification) { overview.close(restoreFocus: false) }
+
     @objc private func quitAll() {
         guard !model.applying && !model.engineBusy else { return }
+        overview.close(restoreFocus: false)
         model.engineBusy = true
         Task {
             defer { model.engineBusy = false }
