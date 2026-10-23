@@ -9,7 +9,7 @@ use objc2_core_foundation::{
 };
 use objc2_core_graphics::{
     CGEvent, CGEventField, CGEventFlags, CGEventTapLocation, CGEventTapOptions,
-    CGEventTapPlacement, CGEventTapProxy, CGEventType,
+    CGEventTapPlacement, CGEventTapProxy, CGEventType, CGMomentumScrollPhase, CGScrollPhase,
 };
 use objc2_foundation::NSSet;
 use scopeguard::ScopeGuard;
@@ -136,6 +136,8 @@ pub(super) struct InputHandler {
     /// scrolling windows underneath (including momentum scroll after finger lift).
     last_swipe_time: Option<Instant>,
     last_window_scroll: Option<(Instant, Direction)>,
+    /// Own the native tail even if the scroll modifier is released first.
+    owned_scroll: Option<Instant>,
     // Prevents from being Unpin automatically
     _pin: PhantomPinned,
 }
@@ -168,6 +170,7 @@ impl InputHandler {
             run_loop_source: None,
             last_swipe_time: None,
             last_window_scroll: None,
+            owned_scroll: None,
             _pin: PhantomPinned,
         }
     }
@@ -359,6 +362,7 @@ impl InputHandler {
             self.finger_position = None;
             self.last_swipe_time = None;
             self.last_window_scroll = None;
+            self.owned_scroll = None;
             return false;
         }
 
@@ -435,11 +439,50 @@ impl InputHandler {
         let base_match = target_modifier.matches(modifiers);
         let combined_match =
             vertical_mod.is_some_and(|vm| (target_modifier | vm).matches(modifiers));
+        let phase =
+            CGEvent::integer_value_field(Some(event), CGEventField::ScrollWheelEventScrollPhase);
+        let momentum =
+            CGEvent::integer_value_field(Some(event), CGEventField::ScrollWheelEventMomentumPhase);
+        if momentum != 0 {
+            // Paneru derives one adjustable coast from the physical input.
+            // Consuming the OS tail avoids double inertia and background scroll.
+            let owned = self
+                .owned_scroll
+                .is_some_and(|last| last.elapsed() < Duration::from_secs(2));
+            if owned {
+                self.owned_scroll = Some(Instant::now());
+                if momentum == i64::from(CGMomentumScrollPhase::Begin.0)
+                    && let Some(events) = &self.events
+                {
+                    // Some devices omit the zero-delta physical end event.
+                    _ = events.send(Event::TouchpadUp);
+                }
+            }
+            return owned || base_match || combined_match;
+        }
+        if phase & i64::from(CGScrollPhase::Began.0) != 0 {
+            self.owned_scroll = None;
+        }
         if !combined_match && !base_match {
+            if phase & i64::from(CGScrollPhase::Ended.0 | CGScrollPhase::Cancelled.0) != 0
+                && self
+                    .owned_scroll
+                    .is_some_and(|last| last.elapsed() < Duration::from_secs(2))
+                && let Some(events) = &self.events
+            {
+                return finish_scroll_phase(events, phase);
+            }
             return false;
         }
 
         if let Some(events) = &self.events {
+            self.owned_scroll = Some(Instant::now());
+            if !combined_match
+                && !self.config.swipe_scroll_window_step()
+                && phase & i64::from(CGScrollPhase::Began.0) != 0
+            {
+                _ = events.send(Event::TouchpadDown);
+            }
             let h_delta = CGEvent::double_value_field(
                 Some(event),
                 CGEventField::ScrollWheelEventFixedPtDeltaAxis2,
@@ -469,10 +512,6 @@ impl InputHandler {
             if delta.abs() > 0.001 {
                 if self.config.swipe_scroll_window_step() {
                     let direction = scroll_step_direction(&self.config, delta);
-                    let momentum = CGEvent::integer_value_field(
-                        Some(event),
-                        CGEventField::ScrollWheelEventMomentumPhase,
-                    );
                     if accept_window_scroll(
                         &mut self.last_window_scroll,
                         &direction,
@@ -486,8 +525,10 @@ impl InputHandler {
                 } else {
                     _ = events.send(Event::Scroll { delta });
                 }
+                finish_scroll_phase(events, phase);
                 return true; // Intercept: don't let the window scroll
             }
+            return finish_scroll_phase(events, phase);
         }
         false
     }
@@ -521,12 +562,21 @@ impl InputHandler {
             if (phase.0 & NS_EVENT_PHASE_CANCELLED != 0 || phase.0 & NS_EVENT_PHASE_ENDED != 0)
                 && let Some(events) = &self.events
             {
+                if phase.0 & NS_EVENT_PHASE_CANCELLED != 0 {
+                    _ = events.send(Event::TouchpadDown);
+                }
                 _ = events.send(Event::TouchpadUp);
+                self.finger_position = None;
                 return false;
             }
 
             let fingers = Touch::sample(&ns_event.allTouches());
             if !gesture_should_intercept(Some(configured_fingers), fingers.len()) {
+                if self.finger_position.take().is_some()
+                    && let Some(events) = &self.events
+                {
+                    _ = events.send(Event::TouchpadUp);
+                }
                 return false;
             }
             if fingers.iter().any(|finger| finger.began) {
@@ -560,7 +610,10 @@ impl InputHandler {
 
                     if x_sum.abs() >= y_sum.abs() {
                         // Horizontal dominant: use existing swipe path
-                        if x_deltas.iter().all(|p| p.abs() > SWIPE_THRESHOLD) {
+                        if horizontal_swipe_detected(
+                            &x_deltas,
+                            self.config.swipe_three_finger_paging(),
+                        ) {
                             _ = events.send(Event::Swipe {
                                 delta: x_sum,
                                 fingers: x_deltas.len(),
@@ -698,6 +751,19 @@ fn get_modifiers(eventflags: CGEventFlags) -> Modifiers {
         })
 }
 
+/// A zero-delta phase event still ends the physical input. Cancellation
+/// clears velocity before release, so it cannot accidentally launch a fling.
+fn finish_scroll_phase(events: &EventSender, phase: i64) -> bool {
+    if phase & i64::from(CGScrollPhase::Ended.0 | CGScrollPhase::Cancelled.0) == 0 {
+        return false;
+    }
+    if phase & i64::from(CGScrollPhase::Cancelled.0) != 0 {
+        _ = events.send(Event::TouchpadDown);
+    }
+    _ = events.send(Event::TouchpadUp);
+    true
+}
+
 fn scroll_step_direction(config: &Config, delta: f64) -> Direction {
     let natural = matches!(
         config.swipe_gesture_direction(),
@@ -727,9 +793,105 @@ fn accept_window_scroll(
     true
 }
 
+fn horizontal_swipe_detected(deltas: &[f64], paging: bool) -> bool {
+    if paging && deltas.len() == 3 {
+        deltas.iter().all(|delta| delta.is_finite())
+            && deltas.iter().sum::<f64>().abs() > f64::EPSILON
+    } else {
+        !deltas.is_empty() && deltas.iter().all(|delta| delta.abs() > SWIPE_THRESHOLD)
+    }
+}
+
+#[test]
+fn paging_recognizes_tiny_three_finger_motion_without_treating_a_touch_as_a_swipe() {
+    assert!(horizontal_swipe_detected(&[0.00001; 3], true));
+    assert!(!horizontal_swipe_detected(&[0.00001; 3], false));
+    assert!(!horizontal_swipe_detected(&[0.0; 3], true));
+    assert!(!horizontal_swipe_detected(&[f64::NAN; 3], true));
+    assert!(!horizontal_swipe_detected(&[0.00001; 4], true));
+    assert!(!horizontal_swipe_detected(&[], true));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scroll_event(
+        phase: CGScrollPhase,
+        momentum: i64,
+        modified: bool,
+        delta: f64,
+    ) -> CFRetained<CGEvent> {
+        let event = CGEvent::new_scroll_wheel_event2(
+            None,
+            objc2_core_graphics::CGScrollEventUnit::Pixel,
+            2,
+            0,
+            1,
+            0,
+        )
+        .expect("local event; never posted");
+        CGEvent::set_flags(
+            Some(&event),
+            if modified {
+                CGEventFlags::MaskAlternate
+            } else {
+                CGEventFlags(0)
+            },
+        );
+        CGEvent::set_integer_value_field(
+            Some(&event),
+            CGEventField::ScrollWheelEventScrollPhase,
+            i64::from(phase.0),
+        );
+        CGEvent::set_integer_value_field(
+            Some(&event),
+            CGEventField::ScrollWheelEventMomentumPhase,
+            momentum,
+        );
+        CGEvent::set_double_value_field(
+            Some(&event),
+            CGEventField::ScrollWheelEventFixedPtDeltaAxis2,
+            delta,
+        );
+        event
+    }
+
+    #[test]
+    fn modifier_scroll_owns_native_tails_after_modifier_release_without_double_travel() {
+        let (sender, receiver) = EventSender::new();
+        let config = Config::try_from("[swipe.scroll]\nmodifier = 'alt'\n").expect("valid config");
+        let mut handler = InputHandler::new(sender, config);
+        assert!(handler.handle_scroll_wheel(&scroll_event(CGScrollPhase::Began, 0, true, 1.0)));
+        assert!(matches!(receiver.try_recv(), Ok(Event::TouchpadDown)));
+        assert!(matches!(receiver.try_recv(), Ok(Event::Scroll { .. })));
+        assert!(handler.handle_scroll_wheel(&scroll_event(CGScrollPhase::Ended, 0, false, 0.0)));
+        assert!(matches!(receiver.try_recv(), Ok(Event::TouchpadUp)));
+        assert!(handler.handle_scroll_wheel(&scroll_event(CGScrollPhase(0), 1, false, 2.0)));
+        assert!(matches!(receiver.try_recv(), Ok(Event::TouchpadUp)));
+        assert!(handler.handle_scroll_wheel(&scroll_event(CGScrollPhase(0), 2, false, 1.0)));
+        assert!(
+            receiver.try_recv().is_err(),
+            "native momentum must not add another scroll delta"
+        );
+        assert!(
+            !handler.handle_scroll_wheel(&scroll_event(CGScrollPhase::Began, 0, false, 1.0)),
+            "a fresh unmodified gesture belongs to the app"
+        );
+        assert!(!handler.handle_scroll_wheel(&scroll_event(CGScrollPhase(0), 1, false, 1.0)));
+    }
+
+    #[test]
+    fn cancelled_scroll_clears_velocity_and_releases_contact_even_without_travel() {
+        let (sender, receiver) = EventSender::new();
+        assert!(finish_scroll_phase(
+            &sender,
+            i64::from(CGScrollPhase::Cancelled.0)
+        ));
+        assert!(matches!(receiver.try_recv(), Ok(Event::TouchpadDown)));
+        assert!(matches!(receiver.try_recv(), Ok(Event::TouchpadUp)));
+        assert!(receiver.try_recv().is_err());
+    }
 
     #[test]
     fn input_config_observes_shared_desktop_exclusions() {

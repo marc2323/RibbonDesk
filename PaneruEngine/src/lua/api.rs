@@ -793,6 +793,15 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     let SwipeOptions {
         sensitivity: _,
         deceleration: _,
+        momentum: _,
+        snap_speed: _,
+        snap_visible: _,
+        snap_animation: _,
+        snap_full_width: _,
+        snap_half_width: _,
+        snap_back: _,
+        snap_exit_distance: _,
+        three_finger_paging: _,
         continuous: _,
         gesture: _,
         scroll: _,
@@ -800,6 +809,15 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     let swipe = lua.create_table()?;
     swipe.set("sensitivity", config.swipe_sensitivity())?;
     swipe.set("deceleration", config.swipe_deceleration())?;
+    swipe.set("momentum", config.swipe_momentum())?;
+    swipe.set("snap_speed", config.swipe_snap_speed())?;
+    swipe.set("snap_visible", config.swipe_snap_visible())?;
+    swipe.set("snap_animation", config.swipe_snap_animation())?;
+    swipe.set("snap_full_width", config.swipe_snap_full_width())?;
+    swipe.set("snap_half_width", config.swipe_snap_half_width())?;
+    swipe.set("snap_back", config.swipe_snap_back())?;
+    swipe.set("snap_exit_distance", config.swipe_snap_exit_distance())?;
+    swipe.set("three_finger_paging", config.swipe_three_finger_paging())?;
     swipe.set("continuous", config.continuous_swipe())?;
 
     let GestureOptions {

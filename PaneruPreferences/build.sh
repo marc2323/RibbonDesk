@@ -17,7 +17,7 @@ p.write_bytes(plistlib.dumps({
  'CFBundleIdentifier':'local.paneru.preferences',
  'CFBundleName':'Paneru Settings','CFBundleDisplayName':'Paneru Settings',
  'CFBundleExecutable':'PaneruSettings','CFBundlePackageType':'APPL',
- 'CFBundleShortVersionString':'1.4','CFBundleVersion':'5',
+ 'CFBundleShortVersionString':'1.10','CFBundleVersion':'11',
  'LSUIElement':True,'LSMinimumSystemVersion':'13.0',
  'CFBundleIconFile':'Paneru.icns','NSHighResolutionCapable':True,
  'NSHumanReadableCopyright':'Local Paneru preferences companion. Paneru engine by its contributors.'

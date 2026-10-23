@@ -47,6 +47,7 @@ pub(crate) struct TestHarness {
     pub(crate) app: App,
     pub(crate) mock_state: MockState,
     pub(crate) verifiers: HashMap<usize, VerifierFunc>,
+    command_updates: usize,
 }
 
 impl TestHarness {
@@ -80,11 +81,19 @@ impl TestHarness {
             app,
             mock_state,
             verifiers: HashMap::new(),
+            command_updates: UPDATES_PER_COMMAND,
         }
     }
 
     pub(crate) fn world(&mut self) -> &mut World {
         self.app.world_mut()
+    }
+
+    /// Tests of settled placement must allow the configured inertia to finish.
+    pub(crate) fn with_command_duration(mut self, duration: Duration) -> Self {
+        self.command_updates = usize::try_from(duration.as_millis().div_ceil(FRAME.as_millis()))
+            .expect("test duration fits usize");
+        self
     }
 
     pub(crate) fn with_windows(mut self, count: i32) -> Self {
@@ -212,7 +221,7 @@ impl TestHarness {
         for (iteration, command) in commands.into_iter().enumerate() {
             self.app.world_mut().write_message::<Event>(command);
 
-            for _ in 0..UPDATES_PER_COMMAND {
+            for _ in 0..self.command_updates {
                 self.app.update();
 
                 // Drain and process events from our virtual OS

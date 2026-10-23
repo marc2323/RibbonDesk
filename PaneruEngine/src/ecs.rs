@@ -310,7 +310,7 @@ pub struct ManualStripOffset {
     pub signature: Vec<(Entity, i32)>,
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Scrolling {
     pub velocity: f64,
     pub position: f64,
@@ -318,6 +318,29 @@ pub struct Scrolling {
     pub is_user_swiping: bool,
     /// Last time a physical swipe event was received.
     pub last_event: Duration,
+    /// Explicit contact phases take precedence over the wheel-event timeout.
+    pub contact_active: bool,
+    /// Strip offset at the beginning of this gesture, before any coast.
+    pub gesture_origin: f64,
+    /// Release speed stays fixed while the live velocity decays.
+    pub release_velocity: f64,
+    /// Column and screen edge selected for the current snap animation.
+    pub snap_target: Option<ScrollSnapTarget>,
+    /// One page per physical three-finger gesture, independent of release speed.
+    pub paging: Option<SwipePaging>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SwipePaging {
+    /// Total physical travel in strip direction, in viewport widths.
+    pub displacement: f64,
+    pub committed: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ScrollSnapTarget {
+    pub entity: Entity,
+    pub trailing: bool,
 }
 
 /// A scroll gesture owns this workspace's viewport until explicit keyboard

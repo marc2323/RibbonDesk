@@ -76,7 +76,7 @@ fn outline_hides_through_gestures_inertia_and_settling() {
         .app
         .init_resource::<OutlineSamples>()
         .add_systems(PostUpdate, observe_outline.after(systems::render_overlays));
-    harness = harness.on_iteration(1, |world, _| {
+    harness = harness.on_iteration(0, |world, _| {
         world.resource_mut::<OutlineSamples>().enabled = true;
     });
     harness.run(vec![
@@ -96,10 +96,11 @@ fn outline_hides_through_gestures_inertia_and_settling() {
         Event::Command {
             command: Command::PrintState,
         },
-        // Modifier-wheel scrolling brings its own macOS momentum events.
+        // Modifier-wheel input uses the same adjustable release momentum.
         Event::Scroll { delta: 0.2 },
         Event::Scroll { delta: -0.1 },
     ]);
+    harness.advance(Duration::from_secs(2));
     let samples = harness.world().resource::<OutlineSamples>();
     assert!(samples.swiping > 0, "must cover fingers driving the strip");
     assert!(samples.inertia > 0, "must cover momentum after finger lift");
@@ -159,7 +160,8 @@ fn continuous_modifier_scroll_only_hides_once_and_draws_once_after_settling() {
         *harness.world().resource::<OverlayState>(),
         OverlayState::Hidden
     );
-    harness.advance(Duration::from_millis(300));
+    // Allow the release coast and the outline quiet period to finish.
+    harness.advance(Duration::from_secs(2));
     assert!(matches!(
         *harness.world().resource::<OverlayState>(),
         OverlayState::Visible { .. }

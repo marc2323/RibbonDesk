@@ -609,6 +609,7 @@ fn command_swap_focus(
     mut messages: MessageReader<Event>,
     windows: Windows,
     mut active_display: ActiveDisplayMut,
+    active_workspace: Single<Entity, With<ActiveWorkspaceMarker>>,
     mut commands: Commands,
 ) {
     let Some(Operation::Swap(direction)) =
@@ -644,13 +645,14 @@ fn command_swap_focus(
         Some(current)
     };
 
-    // Keep the focused window on-screen, but don't anchor it: if its new
-    // layout slot is already visible with the strip where it is, the strip
-    // stays put and per-window animation slides the window into the slot.
-    // Only when the slot would fall off the edge does the strip scroll —
-    // and only by the shortfall.
+    // Explicit moves take ownership from manual scrolling so the viewport
+    // follows the focused window into its new slot. If it already fits, the
+    // strip stays put; otherwise reveal only the part that falls off an edge.
     let swapped = handler();
     if let Some(window) = swapped {
+        if let Ok(mut cmd) = commands.get_entity(*active_workspace) {
+            cmd.try_remove::<(crate::ecs::ScrollPositionHold, crate::ecs::Scrolling)>();
+        }
         commands.ensure_visible(window);
     } else {
         debug!(

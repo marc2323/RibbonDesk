@@ -306,6 +306,41 @@ pub struct Config {
     inner: Arc<ArcSwap<InnerConfig>>,
 }
 
+fn finite_swipe_value(value: Option<f64>, fallback: f64, min: f64, max: f64) -> f64 {
+    value
+        .filter(|v| v.is_finite())
+        .unwrap_or(fallback)
+        .clamp(min, max)
+}
+
+#[test]
+fn scroll_tuning_rejects_nonfinite_values_and_preserves_off() {
+    let config =
+        Config::try_from("[swipe]\nmomentum = nan\nsnap_speed = inf\nsnap_visible = -inf\ndeceleration = nan\nsnap_animation = nan\nsnap_exit_distance = inf\n")
+            .expect("valid TOML");
+    assert!((config.swipe_momentum() - 1.0).abs() < f64::EPSILON);
+    assert!(config.swipe_snap_speed().abs() < f64::EPSILON);
+    assert!((config.swipe_snap_visible() - 0.55).abs() < f64::EPSILON);
+    assert!((config.swipe_deceleration() - 4.0).abs() < f64::EPSILON);
+    assert!((config.swipe_snap_animation() - 1.0).abs() < f64::EPSILON);
+    assert!((config.swipe_snap_exit_distance() - 0.12).abs() < f64::EPSILON);
+    assert!(config.swipe_snap_full_width());
+    assert!(!config.swipe_three_finger_paging());
+    assert!(!config.swipe_snap_half_width() && !config.swipe_snap_back());
+    let config =
+        Config::try_from("[swipe]\nmomentum = 0.0\nsnap_speed = 0.0\nsnap_visible = 2.0\ndeceleration = 999.0\nsnap_animation = 99.0\nsnap_exit_distance = -1.0\nsnap_full_width = false\nsnap_half_width = true\nsnap_back = true\nthree_finger_paging = true\n")
+            .expect("valid TOML");
+    assert!(config.swipe_momentum().abs() < f64::EPSILON);
+    assert!(config.swipe_snap_speed().abs() < f64::EPSILON);
+    assert!((config.swipe_snap_visible() - 0.95).abs() < f64::EPSILON);
+    assert!((config.swipe_deceleration() - 100.0).abs() < f64::EPSILON);
+    assert!((config.swipe_snap_animation() - 4.0).abs() < f64::EPSILON);
+    assert!(config.swipe_snap_exit_distance().abs() < f64::EPSILON);
+    assert!(!config.swipe_snap_full_width());
+    assert!(config.swipe_snap_half_width() && config.swipe_snap_back());
+    assert!(config.swipe_three_finger_paging());
+}
+
 impl Config {
     /// Creates a new `Config` instance by loading the configuration from the specified path.
     ///
@@ -684,8 +719,89 @@ impl Config {
             .as_ref()
             .and_then(|swipe| swipe.deceleration)
             .or(config.options.swipe_deceleration)
+            .filter(|value| value.is_finite())
             .unwrap_or(4.0)
-            .clamp(1.0, 10.0)
+            .clamp(1.0, 100.0)
+    }
+
+    pub fn swipe_momentum(&self) -> f64 {
+        finite_swipe_value(
+            self.inner().swipe.as_ref().and_then(|s| s.momentum),
+            1.0,
+            0.0,
+            3.0,
+        )
+    }
+
+    pub fn swipe_snap_speed(&self) -> f64 {
+        finite_swipe_value(
+            self.inner().swipe.as_ref().and_then(|s| s.snap_speed),
+            0.0,
+            0.0,
+            3.0,
+        )
+    }
+
+    pub fn swipe_snap_visible(&self) -> f64 {
+        finite_swipe_value(
+            self.inner().swipe.as_ref().and_then(|s| s.snap_visible),
+            0.55,
+            0.25,
+            0.95,
+        )
+    }
+
+    pub fn swipe_snap_animation(&self) -> f64 {
+        finite_swipe_value(
+            self.inner().swipe.as_ref().and_then(|s| s.snap_animation),
+            1.0,
+            0.2,
+            4.0,
+        )
+    }
+
+    pub fn swipe_three_finger_paging(&self) -> bool {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|s| s.three_finger_paging)
+            .unwrap_or(false)
+    }
+
+    pub fn swipe_snap_full_width(&self) -> bool {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|s| s.snap_full_width)
+            .unwrap_or(true)
+    }
+
+    pub fn swipe_snap_half_width(&self) -> bool {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|s| s.snap_half_width)
+            .unwrap_or(false)
+    }
+
+    pub fn swipe_snap_back(&self) -> bool {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|s| s.snap_back)
+            .unwrap_or(false)
+    }
+
+    pub fn swipe_snap_exit_distance(&self) -> f64 {
+        finite_swipe_value(
+            self.inner()
+                .swipe
+                .as_ref()
+                .and_then(|s| s.snap_exit_distance),
+            0.12,
+            0.0,
+            0.5,
+        )
     }
 
     pub fn mouse_resize_modifier(&self) -> Option<Modifiers> {

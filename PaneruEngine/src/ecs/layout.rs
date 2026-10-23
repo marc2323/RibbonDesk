@@ -1237,7 +1237,12 @@ fn reshuffle_layout_strip(
         };
 
         let size = frame.size();
-        let visible_width = display_bounds.intersect(frame).width();
+        // Native frames can trail an inertial strip by one update. Compare the
+        // hidden ratio and strip travel in the same layout coordinates.
+        let projected_min = layout_position.0 + active_strip.0;
+        let visible_width = display_bounds
+            .intersect(IRect::from_corners(projected_min, projected_min + size))
+            .width();
 
         // A deliberate offset (center, snap) outranks the derived one, but only
         // while the window this reshuffle is about is still fully on screen: a
@@ -1316,6 +1321,9 @@ fn reshuffle_layout_strip(
         }
 
         trace!("reshuffle_layout_strip: triggered for entity {entity}, offset {strip_position}");
+        if let Ok(mut cmd) = commands.get_entity(strip_entity) {
+            cmd.try_remove::<Scrolling>();
+        }
         commands.reposition_entity(strip_entity, strip_position);
     });
 }
@@ -1340,7 +1348,7 @@ fn ensure_visible_in_strip(
         Query<&mut Position, (With<LayoutStrip>, Without<Window>)>,
     )>,
     displays: DisplayViewports,
-    held_offsets: Query<(), With<ScrollPositionHold>>,
+    owned_offsets: Query<(), Or<(With<ScrollPositionHold>, With<Scrolling>)>>,
     windows: Windows,
     config: Res<Config>,
     mut commands: Commands,
@@ -1374,7 +1382,9 @@ fn ensure_visible_in_strip(
             continue;
         };
 
-        if held_offsets.contains(strip_entity) {
+        // Automatic focus acknowledgments must not take over a moving strip.
+        // Keyboard navigation and Command-click cancel Scrolling before reveal.
+        if owned_offsets.contains(strip_entity) {
             continue;
         }
         if is_new_activation {
@@ -1405,9 +1415,9 @@ fn ensure_visible_in_strip(
         // correction for a window sitting above the menu bar.
         let scroll_to = clamped_min - layout_position.0;
         trace!("ensure_visible_in_strip: entity {entity}, scroll strip to {scroll_to}");
-        // Scrolling to expose a window overrides whatever the user placed here.
+        // An explicit reveal takes over from both manual placement and inertia.
         if let Ok(mut cmd) = commands.get_entity(strip_entity) {
-            cmd.try_remove::<ManualStripOffset>();
+            cmd.try_remove::<(ManualStripOffset, Scrolling)>();
         }
         if marker.snap {
             // This correction is standing in for the virtual-workspace
