@@ -1,7 +1,6 @@
 # Settings guide
 
-RibbonDesk’s native menu-bar companion controls the bundled Paneru engine. Its
-current macOS app bundle and permission entries are named **Paneru Settings**.
+RibbonDesk’s native menu-bar app controls the bundled Paneru window engine.
 For downloads and installation, see the [main README](../README.md#install).
 
 Open Settings by clicking the three-window menu-bar icon or pressing
@@ -20,12 +19,12 @@ restores the default preferences.
 | **This Desktop** | Enable or disable window management on the current macOS Desktop. |
 | **Launch at login** | Start the companion and bundled engine when you log in. |
 | **Activate on: Mouse over** | Activate windows when you hover over them. |
-| **Activate on: Click** | First click activates an inactive window; click again to interact. Requires Accessibility access for Paneru Settings. |
+| **Activate on: Click** | First click activates an inactive window; click again to interact. Requires Accessibility access for RibbonDesk. |
 
 ### Per-Desktop management
 
 Turning off **This Desktop** disables tiling, gestures, hover activation, click
-protection, and Paneru shortcuts on that native macOS Space. Return to an enabled
+protection, and RibbonDesk shortcuts on that native macOS Space. Return to an enabled
 Desktop to resume. A manual global pause stays paused.
 
 Use the menu-bar icon to re-enable an excluded Desktop, since its Settings
@@ -121,7 +120,7 @@ overview animation. Older presets retain their original free-scrolling mode.
 - **Click mode:** use **Allow Click Mode…**, grant Accessibility access in macOS,
   then select Click again.
 - **Blank previews:** use **Allow Window Previews…** and allow Screen Recording
-  for Paneru Settings. Protected content can remain blank. Previews are snapshots;
+  for RibbonDesk. Protected content can remain blank. Previews are snapshots;
   app interaction resumes after entering a window.
 - **Inactive gestures or shortcuts:** check that the engine is running and
   **This Desktop** is enabled.

@@ -68,6 +68,7 @@ enum Engine {
         let logs = PrivateLogs.directory
         let definition: [String: Any] = [
             "Label": "com.github.karinushka.paneru", "Program": binary,
+            "AssociatedBundleIdentifiers": ["local.paneru.preferences"],
             "RunAtLoad": false, "KeepAlive": false, "ProcessType": "Interactive",
             "MachServices": ["com.github.karinushka.paneru": true],
             "EnvironmentVariables": ["XDG_CONFIG_HOME": PreferenceFiles.directory.deletingLastPathComponent().path,
@@ -94,7 +95,7 @@ enum Engine {
             }
             Thread.sleep(forTimeInterval: 0.2)
         }
-        throw CommandFailure(message: "Paneru could not start. Check its Accessibility permission.")
+        throw CommandFailure(message: "RibbonDesk could not start. Check its Accessibility permission.")
     }
 
     static func stop() throws {
@@ -104,7 +105,7 @@ enum Engine {
             if !isRunning() { return }
             Thread.sleep(forTimeInterval: 0.1)
         }
-        throw CommandFailure(message: "Paneru is still closing. Please try again.")
+        throw CommandFailure(message: "RibbonDesk is still closing. Please try again.")
     }
 
     static func normalizeActiveWorkspace() throws {
@@ -217,11 +218,11 @@ final class SettingsModel: ObservableObject {
             loginApprovalRequired = LoginItem.requiresApproval
             message = "Settings saved automatically."
             if DesktopSpaces.read().isSuspended(disabled: next.disabledSpaceUUIDs) {
-                message = "Paneru is disabled on this Desktop."
+                message = "RibbonDesk is disabled on this Desktop."
             } else if previous.disabledSpaceUUIDs != next.disabledSpaceUUIDs {
                 message = "This Desktop is enabled."
             }
-            if loginApprovalRequired { message = "Approve Paneru Settings in Login Items to launch at login." }
+            if loginApprovalRequired { message = "Approve RibbonDesk in Login Items to launch at login." }
         }
         saver.onFailure = { [weak self] error, applied, hasNewerEdit in
             guard let self else { return }
@@ -229,7 +230,7 @@ final class SettingsModel: ObservableObject {
             accessibilityGranted = ActivationClickGuard.isAuthorized
             failed = true
             message = "Couldn’t apply settings. " + error.localizedDescription
-            NSLog("Paneru Settings: %@", error.localizedDescription)
+            NSLog("RibbonDesk: %@", error.localizedDescription)
         }
         saver.onIdle = { [weak self] in
             self?.applying = false
@@ -440,13 +441,13 @@ enum Icon {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "Paneru"
+        image.accessibilityDescription = "RibbonDesk"
         return image
     }
 
     static func export(to directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let iconset = directory.appendingPathComponent("Paneru.iconset")
+        let iconset = directory.appendingPathComponent("RibbonDesk.iconset")
         try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
         for size in [16, 32, 128, 256, 512] {
             for scale in [1, 2] {
@@ -468,7 +469,7 @@ enum Icon {
                 let name = "icon_\(size)x\(size)\(scale == 2 ? "@2x" : "").png"
                 try bitmap.representation(using: .png, properties: [:])!.write(to: iconset.appendingPathComponent(name))
                 if size == 256 && scale == 1 {
-                    try bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("Paneru-logo.png"))
+                    try bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("RibbonDesk-logo.png"))
                 }
             }
         }
@@ -522,14 +523,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         model.quitAction = { [weak self] in self?.quitAll() }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = Icon.menu
-        item.button?.toolTip = "Paneru — click for settings, right-click to quit"
-        item.button?.setAccessibilityLabel("Paneru")
+        item.button?.toolTip = "RibbonDesk — click for settings, right-click to quit"
+        item.button?.setAccessibilityLabel("RibbonDesk")
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked)
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         contextMenu.delegate = self
         contextMenu.autoenablesItems = false
-        contextMenu.addItem(menuItem("Quit", action: #selector(quitAll)))
+        contextMenu.addItem(menuItem("Quit RibbonDesk", action: #selector(quitAll)))
         if !CommandLine.arguments.contains("--background") && !LoginItem.launchedAtLogin { openSettings() }
         desktops.start()
     }

@@ -52,7 +52,7 @@ struct SettingsView: View {
             Panes().stroke(.white, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
                 .padding(5).frame(width: 30, height: 30)
                 .background(accent.gradient, in: RoundedRectangle(cornerRadius: 8))
-            Text("Paneru").font(.system(size: 17, weight: .semibold, design: .rounded))
+            Text("RibbonDesk").font(.system(size: 17, weight: .semibold, design: .rounded))
             Text("Settings").font(.system(size: 11)).foregroundStyle(.secondary)
             Spacer()
             HStack(spacing: 4) {
@@ -68,8 +68,8 @@ struct SettingsView: View {
             toggleRow("This Desktop", detail: model.desktop?.name ?? "Unavailable", value: $model.currentDesktopEnabled)
                 .disabled(model.desktop == nil)
                 .help("Enable window management, gestures, and shortcuts on this Desktop.")
-            toggleRow("Launch at login", detail: "Paneru + menu bar", value: $model.launchAtLogin)
-                .accessibilityHint("Starts Paneru and the menu-bar app automatically when you log in.")
+            toggleRow("Launch at login", detail: "RibbonDesk", value: $model.launchAtLogin)
+                .accessibilityHint("Starts RibbonDesk automatically when you log in.")
             HStack(spacing: 10) {
                 rowLabel("Activate on")
                 Picker("Activate windows", selection: $model.focusMode) {
@@ -113,14 +113,14 @@ struct SettingsView: View {
                     .accessibilityLabel(model.engineRunning ? "Pause Window Management" : "Start Window Management")
                     .disabled(!model.currentDesktopEnabled)
                 Button("Restart") { model.restartEngineAction?() }
-                    .accessibilityLabel("Restart Paneru")
+                    .accessibilityLabel("Restart RibbonDesk")
                     .disabled(!model.currentDesktopEnabled)
                 Button("Overview") { model.overviewAction?() }
                     .disabled(!model.engineRunning || !model.currentDesktopEnabled)
                     .help("See and rearrange the whole ribbon (Control–Option–O).")
                 Spacer(minLength: 0)
                 Button("Quit") { model.quitAction?() }
-                    .accessibilityLabel("Quit Paneru")
+                    .accessibilityLabel("Quit RibbonDesk")
             }.frame(height: 22).disabled(model.applying || model.engineBusy)
             toggleRow("Overview animation", detail: "Off switches instantly", value: $model.overviewAnimation)
             if !model.currentDesktopEnabled { caption("Enable This Desktop to start window management here.") }

@@ -27,7 +27,7 @@ enum CommandRunner {
         }
         guard finished.wait(timeout: .now() + timeout) == .success else {
             process.terminate()
-            throw CommandFailure(message: "Paneru did not respond in time.")
+            throw CommandFailure(message: "RibbonDesk did not respond in time.")
         }
         reader.wait()
         let text = String(decoding: collected.data, as: UTF8.self)

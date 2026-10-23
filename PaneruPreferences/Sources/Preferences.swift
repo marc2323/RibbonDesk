@@ -96,7 +96,7 @@ struct Preferences: Codable, Equatable, Sendable {
         let snapExitDistance = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.snapExitDistance)
         let excludedIDs = disabledSpaceIDs.map(String.init).joined(separator: ", ")
         return """
-        -- Written by Paneru Settings.
+        -- Written by RibbonDesk.
         return { speed = \(speed), momentum = \(momentum), momentum_decay = \(momentumDecay), snap_speed = \(snapSpeed), snap_visible = \(snapVisible), snap_animation = \(snapAnimation), snap_full_width = \(value.snapFullWidth), snap_half_width = \(value.snapHalfWidth), snap_back = \(value.snapBack), snap_exit_distance = \(snapExitDistance), three_finger_paging = \(value.threeFingerPaging), gap = \(value.gap), focus_follows_mouse = \(value.focusMode == .hover), disabled_spaces = { \(excludedIDs) }, border_enabled = \(value.borderEnabled), border_color = "\(value.borderColor)" }
 
         """

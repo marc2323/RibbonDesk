@@ -20,12 +20,12 @@ pub(crate) fn show_accessibility_setup(
     }
 
     let alert = NSAlert::new(main_thread_marker);
-    alert.setMessageText(&NSString::from_str("Allow Paneru to Control Windows"));
+    alert.setMessageText(&NSString::from_str("Allow RibbonDesk to Control Windows"));
     alert.setInformativeText(&NSString::from_str(
-        "Paneru needs Accessibility access to move, resize, and arrange windows.\n\n\
-         In System Settings, open Privacy & Security → Accessibility, then turn on Paneru.\n\n\
-         If Paneru is already listed but access still does not work, remove the old entry with \
-         the – button, add Paneru.app again with the + button, and turn it on.",
+        "RibbonDesk needs Accessibility access to move, resize, and arrange windows.\n\n\
+         In System Settings, open Privacy & Security → Accessibility, then turn on RibbonDesk.\n\n\
+         After you allow access, RibbonDesk will start automatically. You can leave it running \
+         while you change the setting.",
     ));
     alert.addButtonWithTitle(&NSString::from_str("Continue"));
     alert.addButtonWithTitle(&NSString::from_str("Not Now"));

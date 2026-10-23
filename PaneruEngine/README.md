@@ -241,7 +241,7 @@ install the lightweight app wrapper:
 $ paneru install-app
 ```
 
-This creates `$HOME/Applications/Paneru.app`. Opening the app starts the
+This creates `$HOME/Applications/RibbonDesk Engine.app`. Opening the app starts the
 installed Paneru launch agent and exits immediately. Remove the wrapper with:
 
 ```shell

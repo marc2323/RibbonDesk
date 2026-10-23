@@ -6,6 +6,9 @@ License: MIT; see LICENSE.txt.
 
 ## Local changes
 
+- The local distribution is named RibbonDesk in macOS metadata, setup dialogs,
+  and menu-bar controls. The engine CLI, IPC identifiers, storage paths, original
+  copyright, and upstream attribution remain compatible with Paneru.
 - `disabled_spaces` excludes native macOS desktops from window discovery,
   including background window creation. The input tap passes all input through
   immediately on an excluded desktop. The companion stops the engine there and

@@ -3,7 +3,7 @@
 A scrolling ribbon of windows for macOS, with a native menu-bar app and an
 overview for navigating and arranging your whole workspace.
 
-[Download v1.16](https://github.com/marc2323/RibbonDesk/releases/tag/v1.16) ·
+[Download v1.17](https://github.com/marc2323/RibbonDesk/releases/tag/v1.17) ·
 [Settings guide](PaneruPreferences/README.md) ·
 [Build and development](docs/DEVELOPMENT.md)
 
@@ -23,17 +23,18 @@ overview for navigating and arranging your whole workspace.
 **Requirements:** Apple Silicon Mac, macOS 13 or later. The release download
 includes the engine; Rust, Homebrew, and Xcode are not required.
 
-1. Download **RibbonDesk-1.16-macos-arm64.zip** from the
-   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.16) and extract it.
-2. If Paneru is running, choose **Quit** in its menu-bar settings first.
+1. Download **RibbonDesk-1.17-macos-arm64.zip** from the
+   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.17) and extract it.
+2. If RibbonDesk (or the older Paneru Settings app) is running, choose **Quit**
+   in its menu-bar settings first.
 3. Open **Install.command** from the extracted folder. Keep the app, installer,
    and `paneru-init.lua` together. The installer backs up the previous app and
    configuration and preserves your preferences and feel presets.
-4. Open `~/Applications/Paneru Settings.app`.
+4. Open `~/Applications/RibbonDesk.app`.
 5. Complete the macOS **Accessibility** setup when requested. Allow **Screen
-   Recording** for Paneru Settings to enable window previews in overview.
+   Recording** for RibbonDesk to enable window previews in overview.
 
-**Signing status:** v1.16 uses a local development signature and is **not
+**Signing status:** v1.17 uses a local development signature and is **not
 Apple-notarized**. macOS may require manual approval before opening a downloaded
 copy. See [Apple’s guidance for opening apps](https://support.apple.com/en-us/102445).
 
@@ -103,7 +104,7 @@ Hold **Control + Option** while using these keys:
 The [settings guide](PaneruPreferences/README.md) explains scrolling, snapping,
 feel presets, appearance, Desktop exclusions, and launch at login.
 
-- **Blank overview previews:** allow Screen Recording for Paneru Settings.
+- **Blank overview previews:** allow Screen Recording for RibbonDesk.
   Protected content can remain blank.
 - **Gestures or hotkeys do nothing:** check that management is running and
   **This Desktop** is enabled in Settings.
@@ -116,8 +117,7 @@ in the [development guide](docs/DEVELOPMENT.md).
 ## About this repository
 
 RibbonDesk bundles [Paneru](https://github.com/karinushka/paneru) 0.5.2 with local
-window-management changes. The current macOS companion bundle and its permission
-entries are named **Paneru Settings**. See the [upstream notes](PaneruEngine/UPSTREAM.md)
+window-management changes. See the [upstream notes](PaneruEngine/UPSTREAM.md)
 and [license notices](THIRD_PARTY_NOTICES.txt).
 
 The retired prototype is preserved under the `ribbondesk-prototype-retired`

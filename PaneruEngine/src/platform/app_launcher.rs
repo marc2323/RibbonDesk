@@ -10,8 +10,8 @@ use tracing::info;
 
 use crate::util::exe_path;
 
-const APP_BUNDLE_NAME: &str = "Paneru.app";
-const APP_EXECUTABLE_NAME: &str = "PaneruLauncher";
+const APP_BUNDLE_NAME: &str = "RibbonDesk Engine.app";
+const APP_EXECUTABLE_NAME: &str = "RibbonDeskEngineLauncher";
 const APP_BUNDLE_ID: &str = "com.github.karinushka.paneru.launcher";
 
 pub struct AppLauncher {
@@ -102,7 +102,7 @@ fn ensure_owned_bundle(app_path: &Path) -> Result<()> {
     Err(Error::new(
         ErrorKind::AlreadyExists,
         format!(
-            "refusing to replace application not owned by Paneru: {}",
+            "refusing to replace application not owned by RibbonDesk: {}",
             app_path.display()
         ),
     ))
@@ -117,7 +117,7 @@ fn info_plist() -> String {
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>Paneru</string>
+    <string>RibbonDesk</string>
     <key>CFBundleExecutable</key>
     <string>{APP_EXECUTABLE_NAME}</string>
     <key>CFBundleIdentifier</key>
@@ -125,7 +125,7 @@ fn info_plist() -> String {
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Paneru</string>
+    <string>RibbonDesk</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -180,8 +180,8 @@ mod tests {
     };
 
     use super::{
-        APP_BUNDLE_ID, APP_EXECUTABLE_NAME, AppLauncher, ensure_owned_bundle, launcher_script,
-        shell_quote,
+        APP_BUNDLE_ID, APP_BUNDLE_NAME, APP_EXECUTABLE_NAME, AppLauncher, ensure_owned_bundle,
+        launcher_script, shell_quote,
     };
 
     static NEXT_TEST_ID: AtomicU64 = AtomicU64::new(0);
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn write_bundle_creates_a_launchable_application() {
         let root = test_directory();
-        let app_path = root.join("Paneru.app");
+        let app_path = root.join(APP_BUNDLE_NAME);
         let launcher =
             AppLauncher::new(PathBuf::from("/opt/homebrew/bin/paneru"), app_path.clone());
 
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn owned_bundle_check_rejects_an_unrelated_application() {
         let root = test_directory();
-        let app_path = root.join("Paneru.app");
+        let app_path = root.join(APP_BUNDLE_NAME);
         fs::create_dir_all(app_path.join("Contents")).unwrap();
         fs::write(
             app_path.join("Contents/Info.plist"),
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn install_replaces_owned_bundle_and_uninstall_removes_it() {
         let root = test_directory();
-        let app_path = root.join("Applications/Paneru.app");
+        let app_path = root.join("Applications").join(APP_BUNDLE_NAME);
         let launcher = AppLauncher::new(PathBuf::from("/usr/bin/true"), app_path.clone());
 
         launcher.install().unwrap();
