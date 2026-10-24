@@ -259,6 +259,12 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 
 ### Release validation record
 
+**v1.19 (build 21)** displays the app's version and build number in the Settings
+header, using bundle metadata and an accessibility label. The display was
+verified in the installed app. The release build passed warnings-as-errors
+Swift compilation, companion policy/preference tests, and six isolated
+installer checks. App and engine signing requirements match v1.18.
+
 **v1.18 (build 19)** restores touchpad gestures after sleep and unlock by
 restarting the engine once the unlocked session settles. It preserves manual
 pauses, Desktop exclusions, window order, focus, preferences, and feel presets.
