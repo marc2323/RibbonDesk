@@ -23,6 +23,40 @@ startup.policyChanged()
 assert(startup.shouldRun(running: false, excluded: false))
 print("Desktop policy: 15 assertions passed.")
 
+var resumeSession = DesktopSpaceSession()
+assert(resumeSession.shouldRun(running: true, excluded: false))
+resumeSession.resume()
+assert(!resumeSession.shouldRestartAfterResume(running: true, excluded: false, sessionActive: false),
+       "the locked screen must not consume a pending recovery")
+assert(resumeSession.shouldRestartAfterResume(running: true, excluded: false, sessionActive: true),
+       "an unlocked, running session gets a fresh gesture process")
+assert(!resumeSession.shouldRestartAfterResume(running: true, excluded: false, sessionActive: true),
+       "ordinary desktop refreshes must not restart again")
+resumeSession.resume()
+resumeSession.resume()
+assert(resumeSession.shouldRestartAfterResume(running: true, excluded: false, sessionActive: true))
+assert(!resumeSession.shouldRestartAfterResume(running: true, excluded: false, sessionActive: true),
+       "duplicate resume requests coalesce")
+resumeSession.request(false)
+resumeSession.resume()
+assert(!resumeSession.shouldRun(running: false, excluded: false))
+assert(!resumeSession.shouldRestartAfterResume(running: false, excluded: false, sessionActive: true),
+       "a manual pause must survive sleep and unlock")
+resumeSession.request(true)
+resumeSession.resume()
+assert(!resumeSession.shouldRestartAfterResume(running: true, excluded: true, sessionActive: true),
+       "an excluded desktop must not restart the engine")
+resumeSession.resume()
+assert(!resumeSession.shouldRestartAfterResume(running: false, excluded: false, sessionActive: true),
+       "a stopped engine must not be started by gesture recovery")
+var shortcutPause = DesktopSpaceSession()
+assert(shortcutPause.shouldRun(running: true, excluded: false))
+shortcutPause.resume()
+assert(!shortcutPause.shouldRun(running: false, excluded: false))
+assert(!shortcutPause.shouldRestartAfterResume(running: false, excluded: false, sessionActive: true),
+       "a keyboard-shortcut pause must survive unlock before the next desktop refresh")
+print("Resume recovery: locked/unlocked, one-shot recovery, coalescing, manual pause, exclusion and stopped-engine checks passed.")
+
 // Compile with Sources/Preferences.swift as well.
 import Foundation
 let legacy = try JSONDecoder().decode(Preferences.self, from: Data("""

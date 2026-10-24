@@ -123,6 +123,7 @@ final class DesktopSpaceController {
     private var observers: [NSObjectProtocol] = []
     private var busy = false
     private var pending = false
+    private var resumeTask: Task<Void, Never>?
     private var session = DesktopSpaceSession()
 
     init(model: SettingsModel) { self.model = model }
@@ -131,13 +132,42 @@ final class DesktopSpaceController {
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.activeSpaceDidChangeNotification,
                      Notification.Name("NSWorkspaceActiveDisplayDidChangeNotification"),
-                     NSWorkspace.didActivateApplicationNotification,
-                     NSWorkspace.didWakeNotification] {
+                     NSWorkspace.didActivateApplicationNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.refresh() }
             })
         }
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.sessionDidBecomeActiveNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.scheduleResume() }
+            })
+        }
+        observers.append(DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.scheduleResume() }
+        })
         refresh()
+    }
+
+    private static var sessionActive: Bool {
+        guard let info = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return info[kCGSessionOnConsoleKey as String] as? Bool == true
+            && info["CGSSessionScreenIsLocked"] as? Bool != true
+    }
+
+    private func scheduleResume() {
+        resumeTask?.cancel()
+        resumeTask = Task { [weak self] in
+            // Wake usually arrives while loginwindow still owns input. Let
+            // the unlock/session notifications settle before relaunching.
+            do { try await Task.sleep(nanoseconds: 750_000_000) }
+            catch { return }
+            guard let self, Self.sessionActive else { return }
+            self.session.resume()
+            self.refresh()
+        }
     }
 
     func setRequested(_ enabled: Bool) {
@@ -185,9 +215,20 @@ final class DesktopSpaceController {
                 let preferences = PreferenceFiles.read()
                 let excluded = DesktopSpaces.read().isSuspended(disabled: preferences.disabledSpaceUUIDs)
                 let shouldRun = session.shouldRun(running: running, excluded: excluded)
+                let restartForResume = session.shouldRestartAfterResume(
+                    running: running, excluded: excluded, sessionActive: Self.sessionActive)
                 model.setDesktopSuspended(!shouldRun)
                 do {
-                    if shouldRun && !running {
+                    if shouldRun && restartForResume {
+                        model.engineBusy = true
+                        // macOS can stop delivering raw touch events to an
+                        // otherwise healthy process. Recreating its event taps
+                        // alone does not restore that per-process connection.
+                        // A graceful restart saves/restores the ribbon state.
+                        NSLog("RibbonDesk: restarting gesture engine after session resume")
+                        try await Task.detached { try Engine.stop(); try Engine.start() }.value
+                        model.engineRunning = true
+                    } else if shouldRun && !running {
                         model.engineBusy = true
                         try await Task.detached { try Engine.start() }.value
                         model.engineRunning = true

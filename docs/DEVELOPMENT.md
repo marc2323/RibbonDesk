@@ -173,6 +173,27 @@ getters avoid whole-options copies. Framework symbols and display mappings
 are cached, while live Space policy is read at input time. Subprocess workers
 grow on demand to the existing maximum and retire after 30 seconds idle.
 
+Wake, screen wake, session activation, and screen unlock schedule gesture
+recovery after a 750 ms quiet period. Recovery waits until the user's session
+is on the console and unlocked, then gracefully restarts a running engine using
+the existing layout save/restore path. It respects manual pauses and Desktop
+exclusions, and serializes with preference updates and other engine operations.
+Repeated notifications coalesce; ordinary application/Desktop refreshes do not
+restart the engine.
+
+A real sleep/unlock check showed that macOS could stop delivering trackpad
+gestures while keyboard shortcuts and both native event taps remained enabled.
+Replacing the taps did not restore gestures; a full process restart did. This
+is why recovery relaunches the engine instead of relying on tap health checks.
+
+The change passed the 478 engine tests, strict Clippy, formatting, companion
+policy/preference tests, and a warnings-as-errors Swift build. A native smoke
+check confirmed that duplicate unlock notifications cause one engine relaunch
+while the companion stays running and window order, focus, preferences, and
+feel presets are preserved. Installed signing requirements remain unchanged.
+The user confirmed gestures recover automatically after closing the lid,
+reopening the laptop, and unlocking.
+
 ## Validation
 
 Run from the repository root with Rust 1.95.0 available on PATH:
