@@ -17,7 +17,7 @@ p.write_bytes(plistlib.dumps({
  'CFBundleIdentifier':'local.paneru.preferences',
  'CFBundleName':'RibbonDesk','CFBundleDisplayName':'RibbonDesk',
  'CFBundleExecutable':'RibbonDesk','CFBundlePackageType':'APPL',
- 'CFBundleShortVersionString':'1.17','CFBundleVersion':'18',
+ 'CFBundleShortVersionString':'1.18','CFBundleVersion':'19',
  'LSUIElement':True,'LSMinimumSystemVersion':'13.0',
  'CFBundleIconFile':'RibbonDesk.icns','NSHighResolutionCapable':True,
  'NSScreenCaptureUsageDescription':'RibbonDesk uses window snapshots to show previews in Ribbon Overview. No audio is captured or recordings saved.',

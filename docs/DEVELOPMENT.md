@@ -259,6 +259,15 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 
 ### Release validation record
 
+**v1.18 (build 19)** restores touchpad gestures after sleep and unlock by
+restarting the engine once the unlocked session settles. It preserves manual
+pauses, Desktop exclusions, window order, focus, preferences, and feel presets.
+The fix passed 478 engine tests, strict Clippy and formatting, native recovery
+checks, and a confirmed physical lid-close/unlock cycle. The release build
+passed warnings-as-errors Swift compilation, companion policy/preference tests,
+and six isolated installer checks. App and engine signing requirements match
+v1.17.
+
 **v1.17 (build 18)** retains the v1.16 window-management behavior and renames the
 installed app, interface, and embedded engine metadata to RibbonDesk. It passed
 478 Rust tests, strict Clippy and formatting, Swift warnings-as-errors compilation,
