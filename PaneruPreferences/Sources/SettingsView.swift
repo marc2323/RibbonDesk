@@ -5,6 +5,8 @@ struct SettingsView: View {
     static let width: CGFloat = 720
     @ObservedObject var model: SettingsModel
     private let accent = Color(red: 0.20, green: 0.53, blue: 0.62)
+    private let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    private let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
     private let shortcuts = [
         ("Previous / next window", "H / L or ← / →"),
         ("Move window left / right", "J / K"),
@@ -54,6 +56,9 @@ struct SettingsView: View {
                 .background(accent.gradient, in: RoundedRectangle(cornerRadius: 8))
             Text("RibbonDesk").font(.system(size: 17, weight: .semibold, design: .rounded))
             Text("Settings").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("v\(version) · build \(build)")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .accessibilityLabel("RibbonDesk version \(version), build \(build)")
             Spacer()
             HStack(spacing: 4) {
                 Circle().fill(accent).frame(width: 4, height: 4)
