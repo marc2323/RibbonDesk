@@ -17,6 +17,9 @@ struct Preferences: Codable, Equatable, Sendable {
     var snapBack: Bool = false
     var snapExitDistance: Double = 0.12
     var threeFingerPaging: Bool = true
+    var magneticSnapping: Bool = false
+    var magnetStrength: Double = 1.8
+    var magnetRange: Double = 0.2
     var infiniteRibbon: Bool = false
     var overviewAnimation: Bool = false
     var focusMode: FocusMode = .hover
@@ -26,7 +29,7 @@ struct Preferences: Codable, Equatable, Sendable {
     var borderColor: String = BorderColor.defaultHex
     static let defaults = Preferences(speed: 0.65, gap: 6)
 
-    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = [], borderEnabled: Bool = true, borderColor: String = BorderColor.defaultHex, momentum: Double = 1.0, snapSpeed: Double = 0.8, snapVisible: Double = 0.55, momentumDecay: Double = 4.0, snapAnimation: Double = 1.0, snapFullWidth: Bool = true, snapHalfWidth: Bool = true, snapBack: Bool = false, snapExitDistance: Double = 0.12, threeFingerPaging: Bool = true, overviewAnimation: Bool = false, infiniteRibbon: Bool = false) {
+    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = [], borderEnabled: Bool = true, borderColor: String = BorderColor.defaultHex, momentum: Double = 1.0, snapSpeed: Double = 0.8, snapVisible: Double = 0.55, momentumDecay: Double = 4.0, snapAnimation: Double = 1.0, snapFullWidth: Bool = true, snapHalfWidth: Bool = true, snapBack: Bool = false, snapExitDistance: Double = 0.12, threeFingerPaging: Bool = true, overviewAnimation: Bool = false, infiniteRibbon: Bool = false, magneticSnapping: Bool = false, magnetStrength: Double = 1.8, magnetRange: Double = 0.2) {
         self.speed = speed
         self.momentum = momentum
         self.momentumDecay = momentumDecay
@@ -38,6 +41,9 @@ struct Preferences: Codable, Equatable, Sendable {
         self.snapBack = snapBack
         self.snapExitDistance = snapExitDistance
         self.threeFingerPaging = threeFingerPaging
+        self.magneticSnapping = magneticSnapping
+        self.magnetStrength = magnetStrength
+        self.magnetRange = magnetRange
         self.infiniteRibbon = infiniteRibbon
         self.overviewAnimation = overviewAnimation
         self.gap = gap
@@ -62,6 +68,9 @@ struct Preferences: Codable, Equatable, Sendable {
         snapBack = try values.decodeIfPresent(Bool.self, forKey: .snapBack) ?? false
         snapExitDistance = try values.decodeIfPresent(Double.self, forKey: .snapExitDistance) ?? 0.12
         threeFingerPaging = try values.decodeIfPresent(Bool.self, forKey: .threeFingerPaging) ?? true
+        magneticSnapping = try values.decodeIfPresent(Bool.self, forKey: .magneticSnapping) ?? false
+        magnetStrength = try values.decodeIfPresent(Double.self, forKey: .magnetStrength) ?? 1.8
+        magnetRange = try values.decodeIfPresent(Double.self, forKey: .magnetRange) ?? 0.2
         infiniteRibbon = try values.decodeIfPresent(Bool.self, forKey: .infiniteRibbon) ?? false
         overviewAnimation = try values.decodeIfPresent(Bool.self, forKey: .overviewAnimation) ?? false
         // Existing installations have only speed and gap. Preserve both values.
@@ -85,7 +94,9 @@ struct Preferences: Codable, Equatable, Sendable {
                     snapAnimation: snapAnimation.isFinite ? min(4, max(0.2, snapAnimation)) : 1.0,
                     snapFullWidth: snapFullWidth, snapHalfWidth: snapHalfWidth, snapBack: snapBack,
                     snapExitDistance: snapExitDistance.isFinite ? min(0.5, max(0, snapExitDistance)) : 0.12, threeFingerPaging: threeFingerPaging,
-                    overviewAnimation: overviewAnimation, infiniteRibbon: infiniteRibbon)
+                    overviewAnimation: overviewAnimation, infiniteRibbon: infiniteRibbon, magneticSnapping: magneticSnapping,
+                    magnetStrength: magnetStrength.isFinite ? min(6, max(0.2, magnetStrength)) : 1.8,
+                    magnetRange: magnetRange.isFinite ? min(0.4, max(0.03, magnetRange)) : 0.2)
     }
 
     func luaSource(disabledSpaceIDs: [UInt64]) -> String {
@@ -97,10 +108,12 @@ struct Preferences: Codable, Equatable, Sendable {
         let snapVisible = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.snapVisible)
         let snapAnimation = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.snapAnimation)
         let snapExitDistance = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.snapExitDistance)
+        let magnetStrength = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.magnetStrength)
+        let magnetRange = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value.magnetRange)
         let excludedIDs = disabledSpaceIDs.map(String.init).joined(separator: ", ")
         return """
         -- Written by RibbonDesk.
-        return { speed = \(speed), momentum = \(momentum), momentum_decay = \(momentumDecay), snap_speed = \(snapSpeed), snap_visible = \(snapVisible), snap_animation = \(snapAnimation), snap_full_width = \(value.snapFullWidth), snap_half_width = \(value.snapHalfWidth), snap_back = \(value.snapBack), snap_exit_distance = \(snapExitDistance), three_finger_paging = \(value.threeFingerPaging), infinite_ribbon = \(value.infiniteRibbon), gap = \(value.gap), focus_follows_mouse = \(value.focusMode == .hover), disabled_spaces = { \(excludedIDs) }, border_enabled = \(value.borderEnabled), border_color = "\(value.borderColor)" }
+        return { speed = \(speed), momentum = \(momentum), momentum_decay = \(momentumDecay), snap_speed = \(snapSpeed), snap_visible = \(snapVisible), snap_animation = \(snapAnimation), snap_full_width = \(value.snapFullWidth), snap_half_width = \(value.snapHalfWidth), snap_back = \(value.snapBack), snap_exit_distance = \(snapExitDistance), three_finger_paging = \(value.threeFingerPaging), magnetic_snapping = \(value.magneticSnapping), magnet_strength = \(magnetStrength), magnet_range = \(magnetRange), infinite_ribbon = \(value.infiniteRibbon), gap = \(value.gap), focus_follows_mouse = \(value.focusMode == .hover), disabled_spaces = { \(excludedIDs) }, border_enabled = \(value.borderEnabled), border_color = "\(value.borderColor)" }
 
         """
     }
@@ -145,6 +158,9 @@ struct ScrollTuning: Codable, Equatable, Sendable {
     var snapBack: Bool
     var snapExitDistance: Double
     var threeFingerPaging: Bool = true
+    var magneticSnapping: Bool = false
+    var magnetStrength: Double = 1.8
+    var magnetRange: Double = 0.2
 
     var validated: ScrollTuning {
         var preferences = Preferences.defaults
@@ -159,7 +175,8 @@ extension Preferences {
             ScrollTuning(speed: speed, momentum: momentum, momentumDecay: momentumDecay,
                         snapSpeed: snapSpeed, snapVisible: snapVisible, snapAnimation: snapAnimation,
                         snapFullWidth: snapFullWidth, snapHalfWidth: snapHalfWidth,
-                        snapBack: snapBack, snapExitDistance: snapExitDistance, threeFingerPaging: threeFingerPaging)
+                        snapBack: snapBack, snapExitDistance: snapExitDistance, threeFingerPaging: threeFingerPaging,
+                        magneticSnapping: magneticSnapping, magnetStrength: magnetStrength, magnetRange: magnetRange)
         }
         set {
             speed = newValue.speed
@@ -173,6 +190,9 @@ extension Preferences {
             snapBack = newValue.snapBack
             snapExitDistance = newValue.snapExitDistance
             threeFingerPaging = newValue.threeFingerPaging
+            magneticSnapping = newValue.magneticSnapping
+            magnetStrength = newValue.magnetStrength
+            magnetRange = newValue.magnetRange
         }
     }
 }
@@ -192,6 +212,9 @@ extension ScrollTuning {
                   snapBack: try values.decode(Bool.self, forKey: .snapBack),
                   snapExitDistance: try values.decode(Double.self, forKey: .snapExitDistance),
                   // Old feel presets restore the free-scrolling mode they saved.
-                  threeFingerPaging: try values.decodeIfPresent(Bool.self, forKey: .threeFingerPaging) ?? false)
+                  threeFingerPaging: try values.decodeIfPresent(Bool.self, forKey: .threeFingerPaging) ?? false,
+                  magneticSnapping: try values.decodeIfPresent(Bool.self, forKey: .magneticSnapping) ?? false,
+                  magnetStrength: try values.decodeIfPresent(Double.self, forKey: .magnetStrength) ?? 1.8,
+                  magnetRange: try values.decodeIfPresent(Double.self, forKey: .magnetRange) ?? 0.2)
     }
 }

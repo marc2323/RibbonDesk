@@ -20,7 +20,6 @@ use crate::ecs::{
     ActiveWorkspaceMarker, DockPosition, ManualStripOffset, MissionControlActive, Position,
     RepositionMarker, ScrollPositionHold, ScrollSnapTarget, Scrolling, SendMessageTrigger,
 };
-use crate::errors::Result;
 use bevy::ecs::schedule::common_conditions::on_message;
 
 use crate::events::{Event, InputEvent};
@@ -237,7 +236,10 @@ fn swipe_gesture(
                 delta: amount,
                 fingers,
             } if amount.is_finite() && config.swipe_gesture_fingers() == Some(*fingers) => {
-                if *fingers == 3 && config.swipe_three_finger_paging() {
+                if *fingers == 3
+                    && config.swipe_three_finger_paging()
+                    && !config.swipe_magnetic_snapping()
+                {
                     apply_gesture_delta(&mut scroll, delta, width, direction, &time);
                     delta = 0.0;
                     apply_paging_delta(&mut scroll, *amount, width, direction, &time);
@@ -363,6 +365,9 @@ pub(super) fn swiping_timeout(
         let idle = time.elapsed().saturating_sub(scroll.last_event);
         if scroll.is_user_swiping && !scroll.contact_active && idle > FINGER_LIFT_THRESHOLD {
             release_gesture(&mut scroll, time.elapsed());
+            // Let the snap selector see this release on the next tick, even
+            // when wheel input has no explicit lift and momentum is disabled.
+            continue;
         }
         // Stop in pixels per second, not pixels per frame. The old five-pixel
         // frame cutoff discarded most of a modest flick's visible coast.
@@ -396,7 +401,7 @@ fn apply_swipe_paging(
     let Some(paging) = scroll.paging else {
         return;
     };
-    if !config.swipe_three_finger_paging() {
+    if !config.swipe_three_finger_paging() || config.swipe_magnetic_snapping() {
         scroll.paging = None;
         scroll.snap_target = None;
         return;
@@ -466,8 +471,9 @@ fn apply_flick_snap(
     }
     let threshold = config.swipe_snap_speed();
     let momentum = config.swipe_momentum();
+    let magnetic = config.swipe_magnetic_snapping();
     let paging = scroll.paging.is_some();
-    if !paging && (threshold == 0.0 || momentum == 0.0) {
+    if !magnetic && !paging && (threshold == 0.0 || momentum == 0.0) {
         scroll.snap_target = None;
         return;
     }
@@ -477,8 +483,13 @@ fn apply_flick_snap(
     let projected = scroll.position
         + scroll.velocity * direction * width * momentum / config.swipe_deceleration();
     let column_geometry =
-        |entity| snap_column_geometry(entity, &windows, &viewport, &config, paging);
-    if !paging && scroll.snap_target.is_none() {
+        |entity| snap_column_geometry(entity, &windows, &viewport, &config, paging || magnetic);
+    if magnetic && scroll.snap_target.is_none() {
+        scroll.snap_target = magnetic_target(layout, &windows, &viewport, &config, scroll, &time);
+        if scroll.snap_target.is_some() && momentum == 0.0 {
+            scroll.velocity = 0.0;
+        }
+    } else if !paging && scroll.snap_target.is_none() {
         let physical_direction = scroll.release_velocity * direction;
         scroll.snap_target = snap_candidates(layout, &windows, &viewport, &config, projected)
             .filter_map(|candidate| {
@@ -554,6 +565,92 @@ fn apply_flick_snap(
     );
 }
 
+/// A local potential well: fast motion passes through, while slower motion can
+/// be captured nearer its center. Finger-down motion remains direct and a new
+/// touch cancels the spring. No projected destination or one-page limit is used.
+fn magnetic_target(
+    layout: &LayoutStrip,
+    windows: &Windows,
+    viewport: &IRect,
+    config: &Config,
+    scroll: &Scrolling,
+    time: &Time,
+) -> Option<ScrollSnapTarget> {
+    let width = f64::from(viewport.width());
+    let strength = config.swipe_magnet_strength();
+    // With momentum off, lift stops the coast but can still settle a nearby edge.
+    let velocity = if config.swipe_momentum() == 0.0 {
+        0.0
+    } else {
+        scroll.velocity
+    };
+    if velocity.abs() > strength {
+        return None;
+    }
+    let travel = velocity * swipe_direction(config) * time.delta_secs_f64().min(MAX_STEP_SECS);
+    let radius = config.swipe_magnet_range();
+    // Clamp candidate offsets in O(1) per edge. In particular, do not recalculate
+    // the infinite ribbon's period for each candidate.
+    let bounds = if config.infinite_ribbon() {
+        None
+    } else {
+        let clamp = |offset| {
+            clamp_viewport_offset(
+                offset,
+                layout,
+                windows,
+                &|e| windows.moving_frame(e),
+                viewport,
+                config,
+            )
+        };
+        clamp(i32::MIN).zip(clamp(i32::MAX))
+    };
+    snap_candidates(layout, windows, viewport, config, scroll.position)
+        .filter_map(|candidate| {
+            let (leading, column_width, trailing) =
+                snap_column_geometry(candidate.entity, windows, viewport, config, true)?;
+            if candidate.trailing && !trailing {
+                return None;
+            }
+            let target = leading
+                + candidate.loop_offset
+                + if candidate.trailing {
+                    width - column_width
+                } else {
+                    0.0
+                };
+            let target = bounds.map_or(target, |(min, max)| {
+                target.clamp(f64::from(min), f64::from(max))
+            });
+            let distance = (target - scroll.position) / width;
+            magnet_catches(distance, travel, velocity, radius, strength)
+                .then_some((candidate, distance.abs()))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(candidate, _)| candidate)
+}
+
+fn magnet_catches(distance: f64, travel: f64, velocity: f64, radius: f64, strength: f64) -> bool {
+    // Test the swept segment so a 30/60 Hz frame cannot jump over a magnet
+    // that the same motion would catch at 120 Hz. Units are viewport widths.
+    let closest = distance - distance.clamp(travel.min(0.0), travel.max(0.0));
+    let depth = 1.0 - (closest / radius).powi(2);
+    depth >= 0.0 && velocity * velocity <= strength * strength * depth
+}
+
+#[test]
+fn narrow_magnet_catches_swept_crossings_in_either_direction_but_fast_motion_escapes() {
+    for direction in [-1.0, 1.0] {
+        let distance = direction * 0.04;
+        let travel = direction * 0.05;
+        assert!(magnet_catches(distance, travel, 1.5, 0.03, 1.8));
+        assert!(!magnet_catches(distance, 0.0, 1.5, 0.03, 1.8));
+        assert!(!magnet_catches(distance, travel, 2.0, 0.03, 1.8));
+        assert!(!magnet_catches(distance, -travel, 1.5, 0.03, 1.8));
+    }
+}
+
 /// Include the neighboring laps so snapping always follows the gesture across
 /// the seam. Store the chosen lap for the complete spring animation.
 fn snap_candidates(
@@ -568,26 +665,29 @@ fn snap_candidates(
         .then(|| layout.loop_period(viewport.width(), &|e| windows.moving_frame(e)))
         .flatten();
     let viewport_left = viewport.min.x;
-    layout.all_columns().into_iter().flat_map(move |entity| {
-        let period_value = period.map_or(0.0, f64::from);
-        let leading = windows
-            .layout_position(entity)
-            .map_or(0.0, |p| f64::from(viewport_left - p.x));
-        let nearest = period.map_or(0.0, |_| {
-            ((reference - leading) / period_value).round() * period_value
-        });
-        [-1, 0, 1]
-            .into_iter()
-            .filter(move |lap| period.is_some() || *lap == 0)
-            .flat_map(move |lap| {
-                let loop_offset = nearest + f64::from(lap) * period_value;
-                [false, true].map(move |trailing| ScrollSnapTarget {
-                    entity,
-                    trailing,
-                    loop_offset,
+    layout
+        .columns()
+        .filter_map(Column::top)
+        .flat_map(move |entity| {
+            let period_value = period.map_or(0.0, f64::from);
+            let leading = windows
+                .layout_position(entity)
+                .map_or(0.0, |p| f64::from(viewport_left - p.x));
+            let nearest = period.map_or(0.0, |_| {
+                ((reference - leading) / period_value).round() * period_value
+            });
+            [-1, 0, 1]
+                .into_iter()
+                .filter(move |lap| period.is_some() || *lap == 0)
+                .flat_map(move |lap| {
+                    let loop_offset = nearest + f64::from(lap) * period_value;
+                    [false, true].map(move |trailing| ScrollSnapTarget {
+                        entity,
+                        trailing,
+                        loop_offset,
+                    })
                 })
-            })
-    })
+        })
 }
 
 fn snap_column_geometry(
@@ -699,7 +799,7 @@ fn apply_snap_force(
     const CENTER_MAGNETIC_FORCE: f64 = 10.0;
     const SNAP_DISPLAY_RATIO: f64 = 0.45;
 
-    if !config.auto_center() {
+    if !config.auto_center() || config.swipe_magnetic_snapping() {
         return;
     }
 
@@ -845,10 +945,12 @@ where
     {
         return Some(current_offset);
     }
-    let total_strip_width = layout_strip
-        .last()
-        .ok()
-        .and_then(|column| column.top())
+    // Borrow boundary columns: cloning a stack or tab group here would allocate
+    // on every coast frame (and while evaluating magnetic capture bounds).
+    let first = layout_strip.columns().next();
+    let last = layout_strip.columns().last();
+    let total_strip_width = last
+        .and_then(Column::top)
         .and_then(|entity| {
             windows
                 .layout_position(entity)
@@ -857,16 +959,15 @@ where
         .map(|(position, frame)| position.x + frame.width())?;
 
     let continuous_swipe = config.continuous_swipe();
-    let strip_position = |column: Result<Column>| {
+    let strip_position = |column: Option<&Column>| {
         column
-            .ok()
-            .and_then(|column| column.top())
+            .and_then(Column::top)
             .and_then(|entity| windows.layout_position(entity))
             .map(|position| position.0.x)
     };
 
-    let left_snap = strip_position(layout_strip.last());
-    let right_snap = strip_position(layout_strip.first());
+    let left_snap = strip_position(last);
+    let right_snap = strip_position(first);
 
     Some(
         if continuous_swipe && let Some((left_snap, right_snap)) = left_snap.zip(right_snap) {

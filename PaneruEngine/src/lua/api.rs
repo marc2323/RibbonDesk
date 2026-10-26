@@ -803,6 +803,9 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
         snap_half_width: _,
         snap_back: _,
         snap_exit_distance: _,
+        magnetic_snapping: _,
+        magnet_strength: _,
+        magnet_range: _,
         three_finger_paging: _,
         infinite_ribbon: _,
         ribbon_overview: _,
@@ -821,6 +824,9 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     swipe.set("snap_half_width", config.swipe_snap_half_width())?;
     swipe.set("snap_back", config.swipe_snap_back())?;
     swipe.set("snap_exit_distance", config.swipe_snap_exit_distance())?;
+    swipe.set("magnetic_snapping", config.swipe_magnetic_snapping())?;
+    swipe.set("magnet_strength", config.swipe_magnet_strength())?;
+    swipe.set("magnet_range", config.swipe_magnet_range())?;
     swipe.set("three_finger_paging", config.swipe_three_finger_paging())?;
     swipe.set("infinite_ribbon", config.infinite_ribbon())?;
     swipe.set("ribbon_overview", config.ribbon_overview())?;

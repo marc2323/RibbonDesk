@@ -235,6 +235,36 @@ assert(pagingPreferences.luaSource(disabledSpaceIDs: []).contains("three_finger_
 assert(pagingPreferences.scrollTuning != tuned.scrollTuning)
 print("Three-finger paging: live-config export, preference migration, preset migration and mode roundtrip passed.")
 
+assert(!legacy.magneticSnapping && !Preferences.defaults.magneticSnapping)
+assert(legacy.magnetStrength == 1.8 && legacy.magnetRange == 0.2)
+var magnetic = tuned
+magnetic.magneticSnapping = true
+magnetic.magnetStrength = 3.4
+magnetic.magnetRange = 0.28
+let magneticRoundTrip = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(magnetic))
+assert(magneticRoundTrip == magnetic && magnetic.validated == magnetic)
+let magneticLua = magnetic.luaSource(disabledSpaceIDs: [])
+assert(magneticLua.contains("magnetic_snapping = true"))
+assert(magneticLua.contains("magnet_strength = 3.40") && magneticLua.contains("magnet_range = 0.28"))
+let magneticPresetStore = ScrollPresetStore(url: presetRoot.appendingPathComponent("magnetic-presets.json"))
+let magneticPreset = try magneticPresetStore.save(name: "Magnetic", tuning: magnetic.scrollTuning)
+var restoredMagnetic = custom
+restoredMagnetic.scrollTuning = magneticPreset.tuning
+assert(restoredMagnetic.scrollTuning == magnetic.scrollTuning)
+assert(restoredMagnetic.gap == custom.gap && restoredMagnetic.focusMode == custom.focusMode)
+var oldMagneticPreset = try JSONSerialization.jsonObject(with: JSONEncoder().encode(magnetic.scrollTuning)) as! [String: Any]
+for key in ["magneticSnapping", "magnetStrength", "magnetRange"] { oldMagneticPreset.removeValue(forKey: key) }
+let migratedMagnetic = try JSONDecoder().decode(ScrollTuning.self, from: JSONSerialization.data(withJSONObject: oldMagneticPreset))
+assert(!migratedMagnetic.magneticSnapping && migratedMagnetic.magnetStrength == 1.8 && migratedMagnetic.magnetRange == 0.2)
+for (strength, range, expectedStrength, expectedRange) in [
+    (Double.nan, Double.infinity, 1.8, 0.2), (99.0, 99.0, 6.0, 0.4), (-1.0, -1.0, 0.2, 0.03)
+] {
+    magnetic.magnetStrength = strength
+    magnetic.magnetRange = range
+    assert(magnetic.validated.magnetStrength == expectedStrength && magnetic.validated.magnetRange == expectedRange)
+}
+print("Magnetic snapping: opt-in migration, persistence, Lua export, bounds and feel presets passed.")
+
 assert(!legacy.overviewAnimation && !Preferences.defaults.overviewAnimation)
 var animatedOverview = custom
 animatedOverview.overviewAnimation = true

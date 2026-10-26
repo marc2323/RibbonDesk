@@ -755,6 +755,185 @@ fn window_x(h: &mut TestHarness, entity: Entity) -> i32 {
         .x
 }
 
+fn magnetic_harness(momentum: f64, width: f64, reversed: bool, tuning: &str) -> TestHarness {
+    harness_with_tuning(
+        momentum,
+        0.0,
+        0.95,
+        Some(width),
+        reversed,
+        &format!("magnetic_snapping = true\nthree_finger_paging = true\n{tuning}"),
+    )
+}
+
+#[test]
+fn magnetic_medium_flick_catches_next_edge_and_fast_flick_skips_it_with_paging_enabled() {
+    for reversed in [false, true] {
+        for (delta, destination) in [(0.08, 1), (0.16, 2)] {
+            let mut h = magnetic_harness(1.0, 1.0, reversed, "");
+            let delta = if reversed { -delta } else { delta };
+            frame(
+                &mut h,
+                [Event::TouchpadDown, swipe(delta), Event::TouchpadUp],
+            );
+            assert_eq!(settled(&mut h), -destination * TEST_DISPLAY_WIDTH);
+            frame(
+                &mut h,
+                [Event::TouchpadDown, swipe(-delta), Event::TouchpadUp],
+            );
+            assert_eq!(
+                settled(&mut h),
+                0,
+                "the opposite flick returns symmetrically"
+            );
+        }
+    }
+}
+
+#[test]
+fn magnetic_precise_drag_catches_after_lift_but_never_moves_stationary_fingers() {
+    let mut h = magnetic_harness(1.0, 1.0, false, "");
+    frame(&mut h, [Event::TouchpadDown]);
+    for _ in 0..46 {
+        frame(&mut h, [swipe(0.02)]);
+    }
+    let dragged = offset(&mut h);
+    assert_eq!(dragged, round_px(-0.92 * f64::from(TEST_DISPLAY_WIDTH)));
+    h.advance(Duration::from_millis(300));
+    assert_eq!(offset(&mut h), dragged);
+    frame(&mut h, [Event::TouchpadUp]);
+    let during = offset(&mut h);
+    assert!(
+        during < dragged && during > -TEST_DISPLAY_WIDTH,
+        "capture uses a spring"
+    );
+    assert_eq!(settled(&mut h), -TEST_DISPLAY_WIDTH);
+}
+
+#[test]
+fn magnetic_range_and_strength_sliders_change_capture_without_changing_drag_distance() {
+    for (range, catches) in [(0.03, false), (0.2, true)] {
+        let mut h = magnetic_harness(0.0, 1.0, false, &format!("magnet_range = {range}"));
+        frame(&mut h, [Event::TouchpadDown, swipe(0.88)]);
+        assert_eq!(
+            offset(&mut h),
+            round_px(-0.88 * f64::from(TEST_DISPLAY_WIDTH))
+        );
+        frame(&mut h, [Event::TouchpadUp]);
+        let end = settled(&mut h);
+        assert_eq!(end, if catches { -TEST_DISPLAY_WIDTH } else { -901 });
+    }
+    for (strength, destination) in [(1.8, 2), (6.0, 1)] {
+        let mut h = magnetic_harness(1.0, 1.0, false, &format!("magnet_strength = {strength}"));
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(0.16), Event::TouchpadUp],
+        );
+        assert_eq!(settled(&mut h), -destination * TEST_DISPLAY_WIDTH);
+    }
+}
+
+#[test]
+fn magnetic_momentum_tuning_applies_even_when_three_finger_paging_is_enabled() {
+    for (momentum, destination) in [(0.5, 1), (1.0, 2), (1.5, 3)] {
+        let mut h = magnetic_harness(momentum, 1.0, false, "");
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(0.16), Event::TouchpadUp],
+        );
+        assert_eq!(settled(&mut h), -destination * TEST_DISPLAY_WIDTH);
+    }
+}
+
+#[test]
+fn magnetic_short_inaccurate_drag_stays_between_edges_and_zero_momentum_still_catches_nearby() {
+    for (delta, expected) in [(0.6, -614), (0.92, -TEST_DISPLAY_WIDTH), (0.08, 0)] {
+        let mut h = magnetic_harness(0.0, 1.0, false, "");
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(delta), Event::TouchpadUp],
+        );
+        assert_eq!(settled(&mut h), expected);
+    }
+}
+
+#[test]
+fn magnetic_edges_include_half_nonstandard_and_oversized_columns() {
+    for (ratio, drag, target) in [(0.5, 0.46, -512), (0.65, 0.31, -308), (1.4, 0.36, -410)] {
+        let mut h = magnetic_harness(
+            0.0,
+            ratio,
+            false,
+            "snap_full_width = false\nsnap_half_width = false",
+        );
+        // The trailing edge of the next 65%-width column aligns at -30%;
+        // an oversized column's own trailing edge aligns at -40%.
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(drag), Event::TouchpadUp],
+        );
+        assert_eq!(settled(&mut h), target, "width ratio {ratio}");
+    }
+}
+
+#[test]
+fn magnetic_new_touch_interrupts_capture_and_keyboard_navigation_cancels_it() {
+    let mut h = magnetic_harness(1.0, 1.0, false, "");
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(0.08), Event::TouchpadUp],
+    );
+    h.advance(Duration::from_millis(350));
+    frame(&mut h, [Event::TouchpadDown]);
+    let interrupted = offset(&mut h);
+    h.advance(Duration::from_millis(300));
+    assert_eq!(offset(&mut h), interrupted);
+    frame(&mut h, [swipe(-0.1)]);
+    assert!(
+        offset(&mut h) > interrupted,
+        "new input owns the offset immediately"
+    );
+    h.run(vec![Event::Command {
+        command: Command::Window(Operation::Focus(Direction::First)),
+    }]);
+    assert_eq!(offset(&mut h), 0);
+    h.advance(Duration::from_secs(2));
+    assert_eq!(offset(&mut h), 0);
+}
+
+#[test]
+fn magnetic_wheel_timeout_can_capture_with_momentum_off() {
+    let mut h = magnetic_harness(0.0, 1.0, false, "");
+    // A wheel sequence has no TouchpadDown/Up. At sensitivity 1 its scale is .0775.
+    frame(
+        &mut h,
+        [Event::Scroll {
+            delta: 0.92 / 0.0775,
+        }],
+    );
+    assert_eq!(settled(&mut h), -TEST_DISPLAY_WIDTH);
+}
+
+#[test]
+fn magnetic_infinite_ribbon_catches_across_both_sides_of_the_seam() {
+    let mut h = magnetic_harness(1.0, 1.0, false, "infinite_ribbon = true");
+    let order = columns(&mut h);
+    h.run(vec![Event::Command {
+        command: Command::Window(Operation::Focus(Direction::Last)),
+    }]);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(0.16), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), -TEST_DISPLAY_WIDTH);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(-0.16), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), -11 * TEST_DISPLAY_WIDTH);
+    assert_eq!(columns(&mut h), order);
+}
+
 #[test]
 fn infinite_paging_loops_in_both_directions_without_changing_window_order() {
     for reversed in [false, true] {

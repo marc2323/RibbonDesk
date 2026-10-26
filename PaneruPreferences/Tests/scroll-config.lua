@@ -50,6 +50,22 @@ real_dofile(source)
 assert(not configured.swipe.three_finger_paging)
 print("Three-finger paging configuration: enabled default and explicit free-scroll opt-out passed.")
 
+preferences = {}
+real_dofile(source)
+assert(not configured.swipe.magnetic_snapping)
+assert(configured.swipe.magnet_strength == 1.8 and configured.swipe.magnet_range == 0.2)
+preferences = { magnetic_snapping = true, magnet_strength = 3.4, magnet_range = 0.28 }
+real_dofile(source)
+assert(configured.swipe.magnetic_snapping and configured.swipe.three_finger_paging)
+assert(configured.swipe.magnet_strength == 3.4 and configured.swipe.magnet_range == 0.28)
+preferences = { magnet_strength = 0/0, magnet_range = 99 }
+real_dofile(source)
+assert(configured.swipe.magnet_strength == 1.8 and configured.swipe.magnet_range == 0.4)
+preferences = { magnet_strength = -1, magnet_range = -1 }
+real_dofile(source)
+assert(configured.swipe.magnet_strength == 0.2 and configured.swipe.magnet_range == 0.03)
+print("Magnetic snapping configuration: opt-in mode, strength, range, defaults and bounds passed.")
+
 for _, value in ipairs({ false, true, "true", 1 }) do
     preferences = { infinite_ribbon = value }
     real_dofile(source)

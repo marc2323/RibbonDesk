@@ -20,6 +20,8 @@ local snap_speed = scroll_preference("snap_speed", 0.8, 0.0, 3.0)
 local snap_visible = scroll_preference("snap_visible", 0.55, 0.25, 0.95)
 local snap_animation = scroll_preference("snap_animation", 1.0, 0.2, 4.0)
 local snap_exit_distance = scroll_preference("snap_exit_distance", 0.12, 0.0, 0.5)
+local magnet_strength = scroll_preference("magnet_strength", 1.8, 0.2, 6.0)
+local magnet_range = scroll_preference("magnet_range", 0.2, 0.03, 0.4)
 local gap = tonumber(preferences.gap) or 6
 if gap ~= gap then gap = 6 end
 gap = math.floor(math.max(0, math.min(24, gap)) / 2 + 0.5) * 2
@@ -64,6 +66,9 @@ local config = {
     ["snap_back"] = preferences.snap_back == true,
     ["snap_exit_distance"] = snap_exit_distance,
     ["ribbon_overview"] = true,
+    ["magnetic_snapping"] = preferences.magnetic_snapping == true,
+    ["magnet_strength"] = magnet_strength,
+    ["magnet_range"] = magnet_range,
     ["three_finger_paging"] = preferences.three_finger_paging ~= false,
     ["infinite_ribbon"] = preferences.infinite_ribbon == true,
     ["continuous"] = false,

@@ -881,7 +881,10 @@ impl InputHandler {
             return true;
         }
         if x_sum.abs() >= y_sum.abs() {
-            if horizontal_swipe_detected(x_deltas, self.config.swipe_three_finger_paging()) {
+            if horizontal_swipe_detected(
+                x_deltas,
+                self.config.swipe_three_finger_paging() || self.config.swipe_magnetic_snapping(),
+            ) {
                 _ = events.send(Event::Swipe {
                     delta: x_sum,
                     fingers: x_deltas.len(),
@@ -1157,6 +1160,18 @@ fn paging_recognizes_tiny_three_finger_motion_without_treating_a_touch_as_a_swip
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn magnetic_mode_receives_precise_motion_with_paging_off() {
+        let (sender, receiver) = EventSender::new();
+        let config = Config::try_from("[swipe]\nmagnetic_snapping = true\nthree_finger_paging = false\n[swipe.gesture]\nfingers_count = 3\n").unwrap();
+        let mut handler = InputHandler::new(sender, config);
+        assert!(handler.handle_gesture_delta(&[0.00001; 3], &[0.0; 3], 3, false));
+        assert!(
+            matches!(receiver.try_recv().unwrap(), Event::Swipe { delta, fingers: 3 } if delta > 0.0)
+        );
+        assert!(receiver.try_recv().is_err());
+    }
 
     #[test]
     fn overview_keeps_two_finger_scrolls_and_consumes_three_finger_wheel_duplicates() {

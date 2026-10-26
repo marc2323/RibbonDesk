@@ -341,6 +341,23 @@ fn scroll_tuning_rejects_nonfinite_values_and_preserves_off() {
     assert!(config.swipe_three_finger_paging());
 }
 
+#[test]
+fn magnetic_tuning_is_opt_in_and_rejects_nonfinite_and_out_of_range_values() {
+    assert!(!Config::default().swipe_magnetic_snapping());
+    for (tuning, strength, range) in [
+        ("magnet_strength = nan\nmagnet_range = inf", 1.8, 0.2),
+        ("magnet_strength = 999.0\nmagnet_range = 999.0", 6.0, 0.4),
+        ("magnet_strength = -1.0\nmagnet_range = -1.0", 0.2, 0.03),
+    ] {
+        let config =
+            Config::try_from(format!("[swipe]\nmagnetic_snapping = true\n{tuning}").as_str())
+                .expect("valid magnetic config");
+        assert!(config.swipe_magnetic_snapping());
+        assert!((config.swipe_magnet_strength() - strength).abs() < f64::EPSILON);
+        assert!((config.swipe_magnet_range() - range).abs() < f64::EPSILON);
+    }
+}
+
 impl Config {
     /// Creates a new `Config` instance by loading the configuration from the specified path.
     ///
@@ -778,6 +795,32 @@ impl Config {
             .as_ref()
             .and_then(|s| s.three_finger_paging)
             .unwrap_or(false)
+    }
+
+    pub fn swipe_magnetic_snapping(&self) -> bool {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|s| s.magnetic_snapping)
+            .unwrap_or(false)
+    }
+
+    pub fn swipe_magnet_strength(&self) -> f64 {
+        finite_swipe_value(
+            self.inner().swipe.as_ref().and_then(|s| s.magnet_strength),
+            1.8,
+            0.2,
+            6.0,
+        )
+    }
+
+    pub fn swipe_magnet_range(&self) -> f64 {
+        finite_swipe_value(
+            self.inner().swipe.as_ref().and_then(|s| s.magnet_range),
+            0.2,
+            0.03,
+            0.4,
+        )
     }
 
     pub fn infinite_ribbon(&self) -> bool {
