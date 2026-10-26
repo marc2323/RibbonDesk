@@ -163,6 +163,24 @@ inside a native workspace so integrations can render stable numbered slots.
 paneru subscribe --json
 ```
 
+The companion uses `paneru subscribe --json --window-behavior` for a filtered
+stream containing only `window_opened`, `window_behavior_changed`, and
+`window_unavailable`. It does not trigger layout/geometry extraction for focus,
+hover, title changes, or pointer motion. Ordinary subscriptions also receive
+these lifecycle events.
+
+```json
+{"event":"window_opened","window_id":321,"pid":123,"app_name":"Terminal","bundle_id":"com.apple.Terminal","floating":true,"startup":false}
+{"event":"window_behavior_changed","window_id":321,"pid":123,"app_name":"Terminal","bundle_id":"com.apple.Terminal","floating":false}
+{"event":"window_unavailable","window_id":321}
+```
+
+`window_opened` covers discovered standard windows and reports membership after
+placement. `startup` suppresses prompts during initial discovery and the session
+restore grace period. `window_behavior_changed` reports explicit hotkey and
+companion actions. `window_unavailable` dismisses prompts for closed or minimized
+windows. App preferences are independent of one-window hotkey decisions.
+
 `subscribe` keeps its channel open and writes one JSON event per line. The stream
 is intended for integrations such as SketchyBar, so it emits changes that are
 useful for keeping a bar in sync: focus changes, native or virtual workspace

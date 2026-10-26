@@ -115,6 +115,22 @@ fn parse_operation(argv: &[&str]) -> Result<Operation> {
         }),
         "fullwidth" => Operation::FullWidth,
         "manage" => Operation::Manage,
+        "ribbon" => match argv {
+            ["ribbon", window, pid, mode @ ("add" | "float")] => Operation::SetManaged {
+                window: window
+                    .parse::<i32>()
+                    .ok()
+                    .filter(|id| *id >= 0)
+                    .ok_or_else(err)?,
+                pid: pid
+                    .parse::<i32>()
+                    .ok()
+                    .filter(|pid| *pid > 0)
+                    .ok_or_else(err)?,
+                managed: *mode == "add",
+            },
+            _ => return Err(err()),
+        },
         "equalize" => Operation::Equalize,
         "balance" => Operation::Balance,
         "stack" => Operation::Stack(true),
@@ -278,6 +294,16 @@ impl Operation {
             Operation::RaiseFloating => owned(&["raise", "floating"]),
             Operation::ToggleFloatingLayer => owned(&["togglefloatlayer"]),
             Operation::CopyRule => owned(&["copyrule"]),
+            Operation::SetManaged {
+                window,
+                pid,
+                managed,
+            } => vec![
+                "ribbon".into(),
+                window.to_string(),
+                pid.to_string(),
+                if *managed { "add" } else { "float" }.into(),
+            ],
         }
     }
 }
@@ -343,6 +369,16 @@ mod tests {
             Operation::Equalize,
             Operation::Balance,
             Operation::Manage,
+            Operation::SetManaged {
+                window: 42,
+                pid: 123,
+                managed: true,
+            },
+            Operation::SetManaged {
+                window: 0,
+                pid: 123,
+                managed: false,
+            },
             Operation::Stack(true),
             Operation::Stack(false),
             Operation::ToggleTabbedDisplay,
@@ -370,6 +406,18 @@ mod tests {
                 format!("{command:?}"),
                 "argv round-trip changed {operation:?}"
             );
+        }
+    }
+
+    #[test]
+    fn ribbon_commands_reject_invalid_identity_and_modes() {
+        for args in [
+            vec!["window", "ribbon", "-1", "123", "add"],
+            vec!["window", "ribbon", "42", "0", "add"],
+            vec!["window", "ribbon", "42", "123", "toggle"],
+            vec!["window", "ribbon", "42", "123", "add", "extra"],
+        ] {
+            assert!(parse_command(&args).is_err());
         }
     }
 

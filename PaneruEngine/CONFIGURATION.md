@@ -24,6 +24,7 @@ General behavior settings for the window manager.
 | :--- | :--- | :--- | :--- |
 | `focus_follows_mouse` | Boolean | `true` | If enabled, the window under the mouse cursor will automatically gain focus. |
 | `preserve_scroll_until_click` | Boolean | `false` | Keep a manually scrolled viewport through hover, external focus changes, and ordinary clicks. Command-click reveals a managed window on mouse-up with a quick animation. Explicit keyboard focus navigation and window swaps reveal their target, taking over from scrolling. Enabled by the native companion's configuration. |
+| `default_floating` | Boolean | `false` | New windows without an explicit `floating` rule start floating. RibbonDesk enables this; saved startup sessions retain their layout. App rules can use `floating = false` to add an app's new windows automatically. |
 | `disabled_spaces` | Array (native Space IDs) | `[]` | Exclude these native macOS desktop Spaces from window discovery and pass global input through while one is active. The companion stores Space identities and resolves these IDs before starting the engine. |
 | `mouse_follows_focus` | Boolean | `true` | If enabled, the mouse cursor will warp to the center of the focused window when focus changes via keyboard. |
 | `horizontal_mouse_warp` | Integer ``(-1, 1)`` | Off | If enabled, the mouse will warp to another screen above or below, when touching the left or right edge. The direction depends on the direction - a negative value will cause the left edge to warp to a screen above and the right edge to a screen below. This allows having horizontal positioning of displays while having them aligned in a virtual layout in macOS settings. The cursor lands at the *opposite* edge of the target display (preserving cursor flow), with the source's relative Y position. Carries pre-warp horizontal velocity to avoid a "standing start", and skips the warp when the equivalent Y has no position on the target — matching macOS's native side-by-side behavior for displays of unequal height. (inspired by https://github.com/mogenson/WarpMouse.spoon) |
@@ -71,6 +72,7 @@ Configure trackpad gestures and scroll-wheel window sliding.
 | `snap_speed` | Float (0.0–3.0) | `0.0` | Minimum release speed in viewport widths per second to trigger a forward snap. Zero disables flick snapping. |
 | `snap_visible` | Float (0.25–0.95) | `0.55` | Fraction of the destination column that the projected resting position must reveal before snapping. |
 | `three_finger_paging` | Boolean | `false` | Every horizontal three-finger gesture advances one window alignment, including nonstandard widths. Enabled by the settings companion. |
+| `infinite_ribbon` | Boolean | `false` | Join both ends for horizontal scrolling and paging without changing column order. Overrides horizontal edge clamps for ribbons with at least two columns. |
 | `snap_animation` | Float (0.2–4.0) | `1.0` | Snap spring speed multiplier; higher settles faster, independently of the flick threshold. |
 | `snap_full_width` | Boolean | `true` | Snap columns within 90–102% of the viewport width to the leading edge. |
 | `snap_half_width` | Boolean | `false` | Snap columns within 45–55% of viewport width to either edge. Enabled by the settings companion. |
@@ -94,6 +96,22 @@ and snap-back resistance. It retains `snap_animation`, gesture direction, layout
 bounds, and interrupt-on-touch behavior. Other configured finger counts and modifier
 scrolling keep their original behavior. No eligible destination leaves the viewport
 where it began. Disabling paging restores the saved free-scroll settings.
+
+With `infinite_ribbon` enabled, the first column follows the last in either
+direction, including during coasting and snap animation. Columns retain their
+logical order, widths, stacks, and tab groups. Each native window appears once;
+short ribbons leave enough space for a column to leave the viewport before it
+returns. A single column uses its normal bounds. Switching the option off stops
+active scrolling and restores the ordinary bounds around the nearest visible
+column. This option applies per ribbon and does not cycle between Desktops.
+The companion uses the same option to loop Overview previews. In Overview,
+two-finger scrolling uses AppKit input and three-finger horizontal gestures pan
+the preview camera through the existing engine notification channel. Both use
+free panning regardless of `three_finger_paging`; native ribbon windows stay
+still. Vertical three-finger gestures retain their open/enter behavior.
+Three-finger contact boundaries preserve the final movement packet before
+release or cancellation. The companion supplies Overview-only inertial coasting;
+the native ribbon's momentum and snap settings are independent.
 
 Flick snapping is opt-in and independent of `auto_center` and scroll-position holds.
 For a forward snap, release speed and projected visibility must both pass their
@@ -241,6 +259,7 @@ https://github.com/karinushka/paneru/blob/3790b01f8d65df5d9000142db7cf25f9270dcc
 | `window_vertical_shrink` | Cycle a stacked window through preset heights (Shrink). |
 | `window_fullwidth` | Toggle full-width mode. |
 | `window_manage` | Toggle between tiled and floating state. |
+| `window ribbon <window-id> <pid> add\|float` | Set one exact standard window's Ribbon membership. Requires its current owner PID and active native workspace; stale, hidden, minimized, and other-workspace targets are ignored. |
 | `window_stack` | Stack the current window into the column on the left. |
 | `window_unstack` | Pull a window out of a stack into its own column. |
 | `window_tabbeddisplay` | Toggle the focused stack between a normal split display and a tabbed display (one window visible at a time, sharing the full column). Cycle tabs with `window_focus_north`/`window_focus_south`. |

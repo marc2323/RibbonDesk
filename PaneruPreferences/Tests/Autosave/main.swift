@@ -18,6 +18,7 @@ func runAutosaveChecks() async {
     first.momentum = 1.2
     var latest = first
     latest.threeFingerPaging = false
+    latest.infiniteRibbon = true
     latest.overviewAnimation = true
     latest.momentumDecay = 70
     latest.snapAnimation = 2.5

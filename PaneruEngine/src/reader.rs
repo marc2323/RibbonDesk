@@ -138,13 +138,15 @@ impl CommandReader {
                 );
             }
 
-            Request::Subscribe => {
+            Request::Subscribe | Request::SubscribeWindowBehavior => {
+                let behavior_only = matches!(value, Request::SubscribeWindowBehavior);
                 if let Some(subscriber) = subscriber {
                     send(
                         &events,
                         &permit,
                         Event::StateSubscribe {
                             subscriber: Arc::new(subscriber),
+                            behavior_only,
                         },
                     );
                 } else {

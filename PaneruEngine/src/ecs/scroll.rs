@@ -1,9 +1,11 @@
 use bevy::app::{App, Plugin, Update};
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::schedule::IntoScheduleConfigs as _;
-use bevy::ecs::system::{Commands, Local, Populated, Res, Single};
+use bevy::ecs::system::{Commands, Local, Populated, Query, Res, Single};
 use bevy::math::IRect;
 use bevy::time::Time;
 use std::time::{Duration, Instant};
@@ -12,17 +14,17 @@ use tracing::{Level, instrument};
 use crate::commands::{Command, Direction, Operation};
 use crate::config::Config;
 use crate::config::swipe::SwipeGestureDirection;
-use crate::ecs::layout::{Column, LayoutStrip};
+use crate::ecs::layout::{Column, LayoutStrip, looped_window_x};
 use crate::ecs::params::{ActiveDisplay, Windows};
 use crate::ecs::{
-    ActiveWorkspaceMarker, ManualStripOffset, MissionControlActive, Position, RepositionMarker,
-    ScrollPositionHold, ScrollSnapTarget, Scrolling, SendMessageTrigger,
+    ActiveWorkspaceMarker, DockPosition, ManualStripOffset, MissionControlActive, Position,
+    RepositionMarker, ScrollPositionHold, ScrollSnapTarget, Scrolling, SendMessageTrigger,
 };
 use crate::errors::Result;
 use bevy::ecs::schedule::common_conditions::on_message;
 
 use crate::events::{Event, InputEvent};
-use crate::manager::{Window, WindowManager};
+use crate::manager::{Display, Window, WindowManager};
 use crate::platform::Modifiers;
 use crate::util::round_px;
 
@@ -75,6 +77,14 @@ impl Plugin for ScrollEventsPlugin {
         let mission_control_inactive = |mission_control: Option<Res<MissionControlActive>>| {
             mission_control.is_none_or(|active| !active.0)
         };
+        // Lua swaps the shared configuration through ArcSwap, without changing
+        // Bevy's resource tick. Compare just this option in the run condition.
+        let infinite_ribbon_changed = |config: Res<Config>, mut previous: Local<bool>| {
+            let enabled = config.infinite_ribbon();
+            let changed = enabled != *previous;
+            *previous = enabled;
+            changed
+        };
 
         // Only the two gesture systems are gated on an input event. The rest of
         // the chain (inertia, snap force, integrator) must keep running after
@@ -82,6 +92,9 @@ impl Plugin for ScrollEventsPlugin {
         app.add_systems(
             Update,
             (
+                refresh_infinite_ribbon
+                    .run_if(infinite_ribbon_changed)
+                    .before(swipe_gesture),
                 vertical_swipe_gesture
                     .run_if(mission_control_inactive)
                     .run_if(super::overview::inactive)
@@ -102,6 +115,58 @@ impl Plugin for ScrollEventsPlugin {
                     .chain(),
             ),
         );
+    }
+}
+
+/// Apply the switch without restarting management or rearranging columns.
+/// When opening the circle, retain the nearest visible column as the anchor.
+fn refresh_infinite_ribbon(
+    config: Res<Config>,
+    mut strips: Query<(Entity, &LayoutStrip, &ChildOf, &mut Position), Without<Window>>,
+    displays: Query<(&Display, Option<&DockPosition>)>,
+    windows: Windows,
+    mut commands: Commands,
+) {
+    let enabled = config.infinite_ribbon();
+    for (entity, layout, child, mut position) in &mut strips {
+        if let Ok((display, dock)) = displays.get(child.parent()) {
+            let viewport = display.actual_display_bounds(dock, &config);
+            if !enabled && position.y < viewport.max.y - super::layout::PARKED_STRIP_SLIVER {
+                if let Some(period) =
+                    layout.loop_period(viewport.width(), &|e| windows.moving_frame(e))
+                {
+                    let shift = layout
+                        .all_columns()
+                        .into_iter()
+                        .filter_map(|e| {
+                            let width = windows.moving_frame(e)?.width();
+                            let x = windows.layout_position(e)?.x + position.x;
+                            let projected = looped_window_x(x, width, viewport.min.x, period);
+                            Some((
+                                (projected + width / 2 - viewport.center().x).abs(),
+                                projected - x,
+                            ))
+                        })
+                        .min_by_key(|(distance, _)| *distance)
+                        .map_or(0, |(_, shift)| shift);
+                    position.x += shift;
+                }
+                if let Some(offset) = clamp_viewport_offset(
+                    position.x,
+                    layout,
+                    &windows,
+                    &|e| windows.moving_frame(e),
+                    &viewport,
+                    &config,
+                ) {
+                    position.x = offset;
+                }
+            }
+        }
+        position.set_changed();
+        if let Ok(mut entity_commands) = commands.get_entity(entity) {
+            entity_commands.try_remove::<(Scrolling, RepositionMarker, ManualStripOffset)>();
+        }
     }
 }
 
@@ -341,10 +406,7 @@ fn apply_swipe_paging(
     }
     let viewport = active_display.actual_bounds(&config);
     let width = f64::from(viewport.width());
-    let target = layout
-        .all_columns()
-        .into_iter()
-        .flat_map(|entity| [false, true].map(move |trailing| ScrollSnapTarget { entity, trailing }))
+    let target = snap_candidates(layout, &windows, &viewport, &config, scroll.gesture_origin)
         .filter_map(|candidate| {
             let (leading, column_width, trailing_alignment) =
                 snap_column_geometry(candidate.entity, &windows, &viewport, &config, true)?;
@@ -352,6 +414,7 @@ fn apply_swipe_paging(
                 return None;
             }
             let target = leading
+                + candidate.loop_offset
                 + if candidate.trailing {
                     width - column_width
                 } else {
@@ -417,12 +480,7 @@ fn apply_flick_snap(
         |entity| snap_column_geometry(entity, &windows, &viewport, &config, paging);
     if !paging && scroll.snap_target.is_none() {
         let physical_direction = scroll.release_velocity * direction;
-        scroll.snap_target = layout
-            .all_columns()
-            .into_iter()
-            .flat_map(|entity| {
-                [false, true].map(move |trailing| ScrollSnapTarget { entity, trailing })
-            })
+        scroll.snap_target = snap_candidates(layout, &windows, &viewport, &config, projected)
             .filter_map(|candidate| {
                 let (leading, column_width, trailing_alignment) =
                     column_geometry(candidate.entity)?;
@@ -430,6 +488,7 @@ fn apply_flick_snap(
                     return None;
                 }
                 let target = leading
+                    + candidate.loop_offset
                     + if candidate.trailing {
                         width - column_width
                     } else {
@@ -470,6 +529,7 @@ fn apply_flick_snap(
         return;
     }
     let target = leading
+        + candidate.loop_offset
         + if candidate.trailing {
             width - column_width
         } else {
@@ -492,6 +552,42 @@ fn apply_flick_snap(
         config.swipe_snap_animation(),
         time.delta_secs_f64().min(MAX_STEP_SECS),
     );
+}
+
+/// Include the neighboring laps so snapping always follows the gesture across
+/// the seam. Store the chosen lap for the complete spring animation.
+fn snap_candidates(
+    layout: &LayoutStrip,
+    windows: &Windows,
+    viewport: &IRect,
+    config: &Config,
+    reference: f64,
+) -> impl Iterator<Item = ScrollSnapTarget> {
+    let period = config
+        .infinite_ribbon()
+        .then(|| layout.loop_period(viewport.width(), &|e| windows.moving_frame(e)))
+        .flatten();
+    let viewport_left = viewport.min.x;
+    layout.all_columns().into_iter().flat_map(move |entity| {
+        let period_value = period.map_or(0.0, f64::from);
+        let leading = windows
+            .layout_position(entity)
+            .map_or(0.0, |p| f64::from(viewport_left - p.x));
+        let nearest = period.map_or(0.0, |_| {
+            ((reference - leading) / period_value).round() * period_value
+        });
+        [-1, 0, 1]
+            .into_iter()
+            .filter(move |lap| period.is_some() || *lap == 0)
+            .flat_map(move |lap| {
+                let loop_offset = nearest + f64::from(lap) * period_value;
+                [false, true].map(move |trailing| ScrollSnapTarget {
+                    entity,
+                    trailing,
+                    loop_offset,
+                })
+            })
+    })
 }
 
 fn snap_column_geometry(
@@ -620,6 +716,10 @@ fn apply_snap_force(
         return;
     }
 
+    let period = config
+        .infinite_ribbon()
+        .then(|| strip.loop_period(viewport.width(), &|e| windows.moving_frame(e)))
+        .flatten();
     let target_offset = strip
         .all_columns()
         .into_iter()
@@ -629,9 +729,16 @@ fn apply_snap_force(
                 .map(|p| p.0.x)
                 .zip(Some(entity))
         })
-        .map(|(position, entity)| {
+        .map(|(layout_x, entity)| {
             let col_width = windows.moving_frame(entity).map_or(0, |f| f.width());
-            viewport_center - (position + col_width / 2)
+            period.map_or_else(
+                || viewport_center - (layout_x + col_width / 2),
+                |period| {
+                    let x =
+                        looped_window_x(layout_x + position.x, col_width, viewport.min.x, period);
+                    position.x + viewport_center - (x + col_width / 2)
+                },
+            )
         })
         .min_by_key(|target| (position.x - target).abs())
         .unwrap_or(position.x);
@@ -682,6 +789,22 @@ fn apply_scrolling_constraints(
     let (strip, ref mut position, ref mut scroll) = *strip;
 
     let get_window_frame = |entity| windows.moving_frame(entity);
+    if config.infinite_ribbon()
+        && let Some(period) = strip.loop_period(viewport.width(), &get_window_frame)
+    {
+        // Bound coordinates after every lap without changing the physical
+        // scene, release speed, paging origin, or the selected snap's lap.
+        let normalized = f64::from(viewport.min.x)
+            - (f64::from(viewport.min.x) - scroll.position).rem_euclid(f64::from(period));
+        let shift = normalized - scroll.position;
+        scroll.position = normalized;
+        scroll.gesture_origin += shift;
+        if let Some(ref mut target) = scroll.snap_target {
+            target.loop_offset += shift;
+        }
+        position.x = round_px(normalized);
+        return;
+    }
     if let Some(clamped_offset) = clamp_viewport_offset(
         round_px(scroll.position),
         strip,
@@ -715,6 +838,13 @@ fn clamp_viewport_offset<W>(
 where
     W: Fn(Entity) -> Option<IRect>,
 {
+    if config.infinite_ribbon()
+        && layout_strip
+            .loop_period(viewport.width(), get_window_frame)
+            .is_some()
+    {
+        return Some(current_offset);
+    }
     let total_strip_width = layout_strip
         .last()
         .ok()

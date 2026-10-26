@@ -539,6 +539,34 @@ fn test_startup_restore_overrides_floating_config_for_matched_window() {
 }
 
 #[test]
+fn startup_restore_keeps_ribbon_membership_and_gaps_with_floating_default() {
+    let options = MainOptions {
+        default_floating: Some(true),
+        ..MainOptions::default()
+    };
+    let mut params = WindowParams::new(".*", None);
+    params.horizontal_padding = Some(3);
+    let mut harness = TestHarness::new()
+        .with_config(Config::from((options, vec![params])))
+        .with_windows(1)
+        .with_state(state_with_strips(vec![SavedStrip {
+            virtual_index: 0,
+            columns: vec![SavedColumn::Single(saved_window(0))],
+        }]));
+    for _ in 0..5 {
+        harness.app.update();
+    }
+    let entity = crate::tests::harness::find_window_entity(0, harness.world());
+    assert!(harness.world().get::<Unmanaged>(entity).is_none());
+    assert!(
+        harness
+            .mock_state
+            .padding_requests()
+            .contains(&(0, true, 3))
+    );
+}
+
+#[test]
 fn test_late_startup_window_restores_during_grace_period() {
     let mut harness = TestHarness::new();
     harness

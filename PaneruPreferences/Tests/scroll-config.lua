@@ -1,9 +1,10 @@
 -- Exercise the actual configuration bridge without an engine or desktop actions.
 local source = assert(arg[1], "pass paneru-init.lua")
 local real_dofile = dofile
-local preferences, configured
+local preferences, configured, app_behavior
 _G.dofile = function(path)
     if path:match("/preferences%.lua$") then return preferences end
+    if path:match("/app%-behavior%.lua$") then return app_behavior or {} end
     return real_dofile(path)
 end
 _G.paneru = {
@@ -48,3 +49,24 @@ preferences = { three_finger_paging = false }
 real_dofile(source)
 assert(not configured.swipe.three_finger_paging)
 print("Three-finger paging configuration: enabled default and explicit free-scroll opt-out passed.")
+
+for _, value in ipairs({ false, true, "true", 1 }) do
+    preferences = { infinite_ribbon = value }
+    real_dofile(source)
+    assert(configured.swipe.infinite_ribbon == (value == true))
+end
+preferences = {}
+real_dofile(source)
+assert(not configured.swipe.infinite_ribbon)
+print("Infinite ribbon configuration: disabled default and explicit on/off toggle passed.")
+
+app_behavior = { ["com.example.editor"] = "ribbon", ["com.example.chat"] = "floating", ["com.example.browser"] = "ask", ["local.paneru.preferences"] = "ribbon" }
+real_dofile(source)
+assert(configured.options.default_floating == true)
+assert(configured.windows.default.floating == nil, "generic padding must not compete with app rules")
+assert(configured.windows["app:com.example.editor"].floating == false)
+assert(configured.windows["app:com.example.chat"].floating == true)
+assert(configured.windows["app:com.example.browser"].floating == true, "ask windows float until accepted")
+assert(configured.windows.preferences.floating == true)
+assert(configured.restore.enabled)
+print("App behavior configuration: floating default, app overrides, prompt staging, Settings exclusion and session restore passed.")

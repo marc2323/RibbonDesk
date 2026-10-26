@@ -1020,51 +1020,89 @@ fn full_width_window(
 fn manage_window(
     mut messages: MessageReader<Event>,
     windows: Windows,
+    apps: Query<&Application>,
     mut workspaces: Query<(&mut LayoutStrip, Has<ActiveWorkspaceMarker>)>,
+    window_manager: Res<WindowManager>,
+    config: Res<Config>,
     mut commands: Commands,
 ) {
-    if filter_window_operations(&mut messages, |op| matches!(op, Operation::Manage))
-        .next()
-        .is_none()
-    {
-        return;
-    }
-
-    let Some((window, entity, unmanaged)) = windows
-        .focused()
-        .and_then(|(_, entity)| windows.get_managed(entity))
-    else {
-        return;
-    };
-    debug!(
-        "window: {} {entity} unmanaged: {}.",
-        window.id(),
-        unmanaged.is_some()
-    );
-    let was_unmanaged = unmanaged.is_some();
-    if let Ok(mut entity_commands) = commands.get_entity(entity) {
-        if was_unmanaged {
-            entity_commands.try_remove::<Unmanaged>();
-        } else {
-            entity_commands.try_insert(Unmanaged::Floating);
+    let mut pending = std::collections::HashMap::new();
+    for operation in filter_window_operations(&mut messages, |op| {
+        matches!(op, Operation::Manage | Operation::SetManaged { .. })
+    }) {
+        let target = match operation {
+            Operation::Manage => windows.focused().map(|(_, entity)| entity),
+            Operation::SetManaged { window, pid, .. } => {
+                let active = workspaces
+                    .iter()
+                    .find_map(|(strip, active)| active.then_some(strip.id()));
+                let Some(workspace) = active else { continue };
+                if config.disabled_spaces().contains(&workspace) {
+                    continue;
+                }
+                windows.find(*window).and_then(|(candidate, entity)| {
+                    let on_workspace = window_manager
+                        .windows_in_workspace(workspace)
+                        .is_ok_and(|ids| ids.contains(window));
+                    let parked = workspaces
+                        .iter()
+                        .any(|(strip, active)| !active && strip.contains(entity));
+                    (candidate.pid().ok() == Some(*pid)
+                        && on_workspace
+                        && !parked
+                        && candidate.role().is_ok_and(|role| role == "AXWindow")
+                        && candidate
+                            .subrole()
+                            .is_ok_and(|role| role == "AXStandardWindow"))
+                    .then_some(entity)
+                })
+            }
+            _ => None,
+        };
+        let Some((window, entity, unmanaged)) =
+            target.and_then(|entity| windows.get_managed(entity))
+        else {
+            continue;
+        };
+        if matches!(unmanaged, Some(Unmanaged::Minimized | Unmanaged::Hidden)) {
+            continue;
         }
-    }
-
-    // Going floating -> managed only flips the component. Nothing else in
-    // the pipeline reinserts the window into a strip, so if it had been
-    // stripped of membership (spawn-floating path in window_unmanaged_trigger
-    // strip.removes; orphan rescue in find_orphaned_workspaces despawns the
-    // strip) the toggle is invisible — the window stays where it floated
-    // and the user thinks the keybind is broken. Append to the active
-    // strip and reshuffle so the layout pipeline tiles it.
-    if was_unmanaged
-        && !workspaces.iter().any(|(strip, _)| strip.contains(entity))
-        && let Some(mut strip) = workspaces
-            .iter_mut()
-            .find_map(|(strip, active)| active.then_some(strip))
-    {
-        strip.append(entity);
-        commands.reshuffle_around(entity);
+        let was_floating = pending.get(&entity).copied().unwrap_or(unmanaged.is_some());
+        let floating = match operation {
+            Operation::SetManaged { managed, .. } => !managed,
+            _ => !was_floating,
+        };
+        if floating == was_floating {
+            continue;
+        }
+        pending.insert(entity, floating);
+        if let Ok(mut entity_commands) = commands.get_entity(entity) {
+            if floating {
+                entity_commands.try_insert(Unmanaged::Floating);
+            } else {
+                entity_commands.try_remove::<Unmanaged>();
+            }
+        }
+        if !floating
+            && !workspaces.iter().any(|(strip, _)| strip.contains(entity))
+            && let Some(mut strip) = workspaces
+                .iter_mut()
+                .find_map(|(strip, active)| active.then_some(strip))
+        {
+            strip.append(entity);
+            commands.reshuffle_around(entity);
+        }
+        if let Some((_, _, parent)) = windows.find_parent(window.id())
+            && let Ok(app) = apps.get(parent)
+        {
+            commands.trigger(SendMessageTrigger(Event::WindowBehaviorChanged {
+                window_id: window.id(),
+                pid: app.pid(),
+                app_name: app.name().to_string(),
+                bundle_id: app.bundle_id().unwrap_or_default(),
+                floating,
+            }));
+        }
     }
 }
 

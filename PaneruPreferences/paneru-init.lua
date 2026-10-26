@@ -4,6 +4,8 @@
 local home = os.getenv("HOME")
 local loaded, preferences = pcall(dofile, home .. "/.config/paneru/preferences.lua")
 if not loaded or type(preferences) ~= "table" then preferences = {} end
+local behavior_loaded, app_behavior = pcall(dofile, home .. "/.config/paneru/app-behavior.lua")
+if not behavior_loaded or type(app_behavior) ~= "table" then app_behavior = {} end
 local speed = tonumber(preferences.speed) or 0.65
 if speed ~= speed then speed = 0.65 end
 speed = math.max(0.2, math.min(1.5, speed))
@@ -30,6 +32,7 @@ end
 local config = {
   ["default_workspaces"] = 1,
   ["options"] = {
+    ["default_floating"] = true,
     ["preset_column_widths"] = { 0.5, 1.0 },
     ["window_resize_cycle"] = true,
     ["focus_follows_mouse"] = focus_follows_mouse,
@@ -62,6 +65,7 @@ local config = {
     ["snap_exit_distance"] = snap_exit_distance,
     ["ribbon_overview"] = true,
     ["three_finger_paging"] = preferences.three_finger_paging ~= false,
+    ["infinite_ribbon"] = preferences.infinite_ribbon == true,
     ["continuous"] = false,
     ["gesture"] = {
       ["fingers_count"] = 3,
@@ -109,6 +113,15 @@ config.windows.default.horizontal_padding = math.floor(gap / 2)
 config.windows.preferences = {
     title = ".*", bundle_id = "local.paneru.preferences", floating = true,
 }
+-- Each app has exactly one rule; leave floating out of the generic padding
+-- rule so rule-table iteration order cannot override an app's saved choice.
+for bundle, behavior in pairs(app_behavior) do
+    if type(bundle) == "string" and bundle ~= "local.paneru.preferences" then
+        config.windows["app:" .. bundle] = {
+            title = ".*", bundle_id = bundle, floating = behavior ~= "ribbon",
+        }
+    end
+end
 paneru.setup(config)
 
 -- Keep every global shortcut on the same Control + Option modifier.

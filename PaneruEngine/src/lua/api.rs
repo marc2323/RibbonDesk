@@ -696,6 +696,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     // Exhaustive destructure: adding any field to `MainOptions` triggers a
     // compile error until it is explicitly mapped onto `options` below.
     let MainOptions {
+        default_floating: _,
         focus_follows_mouse: _,
         preserve_scroll_until_click: _,
         disabled_spaces: _,
@@ -735,6 +736,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
         create_virtual_workspace_automatically: _,
     } = &raw_opts;
 
+    options.set("default_floating", config.default_floating())?;
     options.set("focus_follows_mouse", config.focus_follows_mouse())?;
     options.set("disabled_spaces", config.disabled_spaces())?;
     options.set(
@@ -802,6 +804,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
         snap_back: _,
         snap_exit_distance: _,
         three_finger_paging: _,
+        infinite_ribbon: _,
         ribbon_overview: _,
         continuous: _,
         gesture: _,
@@ -819,6 +822,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     swipe.set("snap_back", config.swipe_snap_back())?;
     swipe.set("snap_exit_distance", config.swipe_snap_exit_distance())?;
     swipe.set("three_finger_paging", config.swipe_three_finger_paging())?;
+    swipe.set("infinite_ribbon", config.infinite_ribbon())?;
     swipe.set("ribbon_overview", config.ribbon_overview())?;
     swipe.set("continuous", config.continuous_swipe())?;
 

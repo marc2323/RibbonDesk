@@ -485,6 +485,10 @@ impl Config {
             .unwrap_or_default()
     }
 
+    pub fn default_floating(&self) -> bool {
+        self.inner().options.default_floating.unwrap_or(false)
+    }
+
     /// Returns `true` if any window rule for the given bundle ID requests that the
     /// process be forcibly managed even when macOS reports it as unobservable.
     pub fn should_force_manage_process(&self, process: &dyn ProcessApi) -> bool {
@@ -773,6 +777,14 @@ impl Config {
             .swipe
             .as_ref()
             .and_then(|s| s.three_finger_paging)
+            .unwrap_or(false)
+    }
+
+    pub fn infinite_ribbon(&self) -> bool {
+        self.inner()
+            .swipe
+            .as_ref()
+            .and_then(|swipe| swipe.infinite_ribbon)
             .unwrap_or(false)
     }
 
@@ -1354,6 +1366,8 @@ pub struct RestoreOptions {
 #[derive(Deserialize, Clone, Debug, Default)]
 #[cfg_attr(test, derive(serde::Serialize))]
 pub struct MainOptions {
+    /// Initial state of newly discovered windows without an explicit floating rule.
+    pub default_floating: Option<bool>,
     /// Enables or disables focus follows mouse behavior.
     pub focus_follows_mouse: Option<bool>,
     /// Hold a manually scrolled viewport until a managed window is Command-clicked.

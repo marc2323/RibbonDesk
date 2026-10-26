@@ -4,17 +4,21 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class RibbonOverviewModel: ObservableObject {
-    @Published var windows: [RibbonWindow] = []
+    @Published var windows: [RibbonWindow] = [] { didSet { camera = RibbonCamera(windows: windows) } }
+    private(set) var camera = RibbonCamera(windows: [])
     @Published var previews: [Int32: RibbonPreviewFrame] = [:]
     @Published var overviewOffset = 0.0
+    @Published var infiniteRibbon = false
     @Published var zoomedOut = false
     @Published var transitioning = false
     @Published var exitTargetID: Int32?
+    var exitSceneShift = 0.0
     var animatesTransitions = false
     var viewportX = 0.0
     var viewportY = 0.0
     var backdrop: NSImage?
     @Published var selectedID: Int32?
+    @Published var originID: Int32?
     @Published var draggingID: Int32?
     @Published var insertion: (id: Int32, after: Bool)?
     @Published var message = ""
@@ -34,7 +38,8 @@ final class RibbonOverviewModel: ObservableObject {
     func select(_ delta: Int) {
         guard !windows.isEmpty else { return }
         let current = windows.firstIndex { $0.id == selectedID } ?? 0
-        selectedID = windows[min(windows.count - 1, max(0, current + delta))].id
+        let next = current + delta
+        selectedID = windows[infiniteRibbon ? (next % windows.count + windows.count) % windows.count : min(windows.count - 1, max(0, next))].id
         revealSelection?()
     }
 }
@@ -50,6 +55,7 @@ final class RibbonOverviewController {
     var canShow: () -> Bool = { true }
     var willShow: (() -> Void)?
     var animateTransitions: () -> Bool = { false }
+    var infiniteRibbon: () -> Bool = { false }
     private var panel: RibbonPanel?
     private var snapshot: RibbonSnapshot?
     private var observers: [NSObjectProtocol] = []
@@ -68,6 +74,9 @@ final class RibbonOverviewController {
     private var pendingEnterID: Int32?
     private var windowActionTask: Task<Void, Never>?
     private var dragScrollTimer: Timer?
+    private var momentumTimer: Timer?
+    private var momentum = RibbonOverviewMomentum()
+    private var requestedPreviewIDs: Set<Int32>?
     private var opening = false
     private var generation = UUID()
     private var originalApp: NSRunningApplication?
@@ -98,6 +107,10 @@ final class RibbonOverviewController {
         observers.append(center.addObserver(forName: .init("local.paneru.overview.accept"), object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.enterFromPointer() }
         })
+        observers.append(center.addObserver(forName: .init("local.paneru.overview.pan"), object: nil, queue: .main) { [weak self] notification in
+            guard let value = notification.object as? String else { return }
+            Task { @MainActor in self?.scrollOverview(value) }
+        })
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append(workspace.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.close(restoreFocus: false) }
@@ -108,7 +121,7 @@ final class RibbonOverviewController {
         model.close = { [weak self] in self?.dismiss() }
         model.jump = { [weak self] id in self?.jump(to: id) }
         model.move = { [weak self] id, target, after in self?.move(id, beside: target, after: after) }
-        model.refreshPreviews = { [weak self] in self?.capturePreviews(requestPermission: true) }
+        model.refreshPreviews = { [weak self] in self?.stopMomentum(); self?.capturePreviews(requestPermission: true) }
         model.pan = { [weak self] offset in self?.pan(to: offset) }
         model.revealSelection = { [weak self] in self?.revealSelection() }
         model.dragChanged = { [weak self] in self?.updateDragScroll() }
@@ -147,12 +160,16 @@ final class RibbonOverviewController {
                 }
                 snapshot = value
                 model.windows = value.ribbon
-                model.selectedID = value.ribbon.first(where: \.focused)?.id ?? value.ribbon.first?.id
+                model.infiniteRibbon = infiniteRibbon()
+                model.originID = value.overviewOriginID
+                model.selectedID = model.originID ?? value.ribbon.first?.id
+                requestedPreviewIDs = nil
                 model.previews = previews.begin(windows: value.ribbon)
                 model.animatesTransitions = animateTransitions() && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                 model.zoomedOut = !model.animatesTransitions
                 model.transitioning = false
                 model.exitTargetID = nil
+                model.exitSceneShift = 0
                 model.message = ""
                 model.moving = false
                 model.windowActionPending = false
@@ -200,9 +217,9 @@ final class RibbonOverviewController {
             model.viewportX = ribbon.x - (native.x + (native.width - ribbon.width) / 2 - displayBounds.minX)
             model.viewportY = ribbon.y - (native.y + (native.height - ribbon.height) / 2 - displayBounds.minY - menuHeight)
         } else { model.viewportX = 0; model.viewportY = 0 }
-        let camera = RibbonCamera(windows: model.windows)
-        model.overviewOffset = camera.initialOffset(camera.overview(width: panelFrame.width, height: panelFrame.height),
-                                                    viewportX: model.viewportX, width: panelFrame.width)
+        let camera = model.camera
+        model.overviewOffset = camera.initialOffset(camera.overview(width: panelFrame.width, height: panelFrame.height, infinite: model.infiniteRibbon),
+                                                    viewportX: model.viewportX, width: panelFrame.width, originID: model.originID)
         if let url = NSWorkspace.shared.desktopImageURL(for: screen) {
             if cachedBackdrop?.url != url, let image = NSImage(contentsOf: url) { cachedBackdrop = (url, image) }
             model.backdrop = cachedBackdrop?.image
@@ -268,9 +285,11 @@ final class RibbonOverviewController {
     private func dismiss() {
         if opening && !isVisible { close(); return }
         guard isVisible, !model.transitioning else { return }
+        stopMomentum()
         guard model.animatesTransitions else { close(); return }
         model.transitioning = true
         model.exitTargetID = nil
+        model.exitSceneShift = 0
         withAnimation(.easeOut(duration: 0.16)) { model.zoomedOut = false }
         let token = generation
         Task {
@@ -282,6 +301,8 @@ final class RibbonOverviewController {
 
     func close(restoreFocus: Bool = true) {
         guard panel != nil || opening else { return }
+        stopMomentum()
+        requestedPreviewIDs = nil
         generation = UUID()
         opening = false
         handoff = nil
@@ -309,6 +330,7 @@ final class RibbonOverviewController {
         panel = nil
         snapshot = nil
         model.previews = [:]
+        model.originID = nil
         model.backdrop = nil
         model.draggingID = nil
         model.insertion = nil
@@ -319,6 +341,14 @@ final class RibbonOverviewController {
 
     private func jump(to id: Int32, allowingModal: Bool = false) {
         guard !model.moving, !model.transitioning, !model.windowActionPending, model.windows.contains(where: { $0.id == id }) else { return }
+        stopMomentum()
+        if let panel {
+            let camera = model.camera
+            let overview = camera.overview(width: panel.frame.width, height: panel.frame.height, infinite: model.infiniteRibbon)
+            let preferredX = windowUnderPointer() == id ? panel.mouseLocationOutsideOfEventStream.x : panel.frame.width / 2
+            model.exitSceneShift = camera.sceneShift(id: id, overview: overview, offset: model.overviewOffset,
+                                                    width: panel.frame.width, preferredX: preferredX)
+        }
         model.transitioning = true
         model.exitTargetID = id
         let token = generation
@@ -355,11 +385,14 @@ final class RibbonOverviewController {
     }
 
     private func handoffFailed() {
+        stopMomentum()
+        requestedPreviewIDs = nil
         handoff = nil
         handoffTask?.cancel(); handoffTimeout?.cancel()
         model.zoomedOut = true
         model.transitioning = false
         model.exitTargetID = nil
+        model.exitSceneShift = 0
         model.message = "Couldn’t activate that window. Try selecting it again."
         model.previews = previews.begin(windows: model.windows)
         capturePreviews()
@@ -367,6 +400,7 @@ final class RibbonOverviewController {
 
     private func move(_ id: Int32, beside target: Int32, after: Bool, follow: Bool = false) {
         guard !model.moving, !model.transitioning, !model.windowActionPending, isVisible, id != target else { return }
+        stopMomentum()
         model.moving = true
         model.message = "Moving window…"
         let token = generation
@@ -411,8 +445,8 @@ final class RibbonOverviewController {
     private func windowUnderPointer() -> Int32? {
         guard let panel else { return nil }
         let point = panel.mouseLocationOutsideOfEventStream
-        return RibbonCamera(windows: model.windows).windowAt(x: point.x, y: panel.frame.height - point.y,
-            width: panel.frame.width, height: panel.frame.height, offset: model.overviewOffset)
+        return model.camera.windowAt(x: point.x, y: panel.frame.height - point.y,
+            width: panel.frame.width, height: panel.frame.height, offset: model.overviewOffset, infinite: model.infiniteRibbon)
     }
 
     private func updatePointerSelection(enteredID: Int32? = nil) {
@@ -443,6 +477,7 @@ final class RibbonOverviewController {
         model.windows = value.ribbon
         model.selectedID = selection
         let validIDs = Set(value.ribbon.map(\.id))
+        if let originID = model.originID, !validIDs.contains(originID) { model.originID = nil }
         model.previews = model.previews.filter { validIDs.contains($0.key) }
         for window in value.ribbon where newIDs.contains(window.id) { model.previews[window.id] = previews.frame(for: window) }
         pan(to: model.overviewOffset)
@@ -451,6 +486,7 @@ final class RibbonOverviewController {
     private func performWindowAction(_ action: RibbonWindowAction, on id: Int32) {
         guard isVisible, !model.moving, !model.transitioning, !model.windowActionPending,
               model.draggingID == nil, model.windows.contains(where: { $0.id == id }) else { return }
+        stopMomentum()
         model.selectedID = id
         keyboardPointerAnchor = NSEvent.mouseLocation
         reorderQueue.clear()
@@ -537,9 +573,12 @@ final class RibbonOverviewController {
         guard let panel, !model.transitioning else { return }
         let width = panel.frame.width
         let backing = panel.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        let camera = RibbonCamera(windows: model.windows)
-        let overview = camera.overview(width: width, height: panel.frame.height)
-        let visible = camera.visibleIDs(scale: overview.scale, x: overview.x - model.overviewOffset, width: width)
+        let camera = model.camera
+        let overview = camera.overview(width: width, height: panel.frame.height, infinite: model.infiniteRibbon)
+        let visible = Set(camera.instances(scale: overview.scale, x: overview.x - overview.resolvedOffset(model.overviewOffset),
+                                           width: width, period: overview.loopPeriod).map { $0.id.windowID })
+        guard requestPermission || requestedPreviewIDs != visible else { return }
+        requestedPreviewIDs = visible
         let targets = model.windows.filter { visible.contains($0.id) }.sorted { $0.id == model.selectedID && $1.id != model.selectedID }
         previews.request(windows: targets, frames: model.previews, scale: overview.scale, backingScale: backing) { [weak self] error in
             guard let self, self.generation == token else { return }
@@ -547,28 +586,71 @@ final class RibbonOverviewController {
         }
     }
 
-    private func pan(to offset: Double) {
+    private func pan(to offset: Double, preservingMomentum: Bool = false) {
         guard let panel, !model.transitioning else { return }
-        let overview = RibbonCamera(windows: model.windows).overview(width: panel.frame.width, height: panel.frame.height)
-        model.overviewOffset = overview.clamped(offset)
+        if !preservingMomentum { stopMomentum() }
+        let overview = model.camera.overview(width: panel.frame.width, height: panel.frame.height, infinite: model.infiniteRibbon)
+        model.overviewOffset = overview.resolvedOffset(offset)
         capturePreviews()
         updatePointerSelection()
     }
 
+    private func stopMomentum() {
+        momentumTimer?.invalidate()
+        momentumTimer = nil
+        momentum.cancel()
+    }
+
+    private func scrollOverview(_ value: String) {
+        guard let panel, !model.transitioning, !model.windowActionPending else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        switch value {
+        case "begin":
+            stopMomentum()
+            momentum.begin(at: now)
+        case "end":
+            momentum.end(at: now)
+            startMomentum()
+        case "cancel": stopMomentum()
+        default:
+            guard let delta = Double(value), delta.isFinite else { return }
+            if momentumTimer != nil { stopMomentum() }
+            let pixels = delta * panel.frame.width
+            momentum.move(by: pixels, at: now)
+            pan(to: model.overviewOffset + pixels, preservingMomentum: true)
+        }
+    }
+
+    private func startMomentum() {
+        guard let panel, momentum.coasting, momentumTimer == nil else { return }
+        let interval = 1.0 / Double(min(120, max(60, panel.screen?.maximumFramesPerSecond ?? 60)))
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isVisible, !self.model.transitioning, self.model.draggingID == nil,
+                      let delta = self.momentum.advance(at: ProcessInfo.processInfo.systemUptime) else {
+                    self?.stopMomentum(); return
+                }
+                let previous = self.model.overviewOffset
+                self.pan(to: previous + delta, preservingMomentum: true)
+                if !self.momentum.coasting || self.model.overviewOffset == previous { self.stopMomentum() }
+            }
+        }
+        timer.tolerance = interval * 0.15
+        momentumTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
     private func revealSelection() {
         guard let panel, let id = model.selectedID else { return }
-        let camera = RibbonCamera(windows: model.windows)
-        let overview = camera.overview(width: panel.frame.width, height: panel.frame.height)
-        guard let frame = camera.placements.first(where: { $0.id == id })?.frame else { return }
-        let left = frame.x * overview.scale + overview.x - model.overviewOffset
-        let right = left + frame.width * overview.scale
-        if left < 48 { pan(to: model.overviewOffset + left - 48) }
-        else if right > panel.frame.width - 48 { pan(to: model.overviewOffset + min(left - 48, right - panel.frame.width + 48)) }
+        let camera = model.camera
+        let overview = camera.overview(width: panel.frame.width, height: panel.frame.height, infinite: model.infiniteRibbon)
+        pan(to: camera.revealingOffset(id: id, overview: overview, offset: model.overviewOffset, width: panel.frame.width))
     }
 
     private func updateDragScroll() {
         dragScrollTimer?.invalidate(); dragScrollTimer = nil
         guard model.draggingID != nil else { return }
+        stopMomentum()
         let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let panel = self.panel, self.model.draggingID != nil,
@@ -591,23 +673,25 @@ struct RibbonOverviewView: View {
     private let accent = Color(red: 0.32, green: 0.77, blue: 0.87)
     var body: some View {
         GeometryReader { geometry in
-            let camera = RibbonCamera(windows: model.windows)
-            let overview = camera.overview(width: geometry.size.width, height: geometry.size.height)
+            let camera = model.camera
+            let overview = camera.overview(width: geometry.size.width, height: geometry.size.height, infinite: model.infiniteRibbon)
             let scale = model.zoomedOut ? overview.scale : 1
-            let overviewX = overview.x - overview.clamped(model.overviewOffset)
-            let destinationX = -camera.destination(id: model.exitTargetID, viewportX: model.viewportX, width: geometry.size.width)
+            let overviewX = overview.x - overview.resolvedOffset(model.overviewOffset)
+            let destinationX = -camera.destination(id: model.exitTargetID, viewportX: model.viewportX, width: geometry.size.width) - model.exitSceneShift
             let originX = model.zoomedOut ? overviewX : destinationX
             let originY = model.zoomedOut ? overview.y : -model.viewportY
-            let visible = camera.visibleIDs(scale: overview.scale, x: overviewX, width: geometry.size.width)
-                .union(camera.visibleIDs(scale: 1, x: destinationX, width: geometry.size.width))
+            let instances = camera.sceneInstances(overview: overview, offset: model.overviewOffset, width: geometry.size.width, destinationX: destinationX)
+            let origin = camera.originInstance(id: model.originID, instances: instances, scale: scale, x: originX, width: geometry.size.width)
             ZStack(alignment: .topLeading) {
                 backdrop
                 Color.black.opacity(model.zoomedOut ? 0.32 : 0).ignoresSafeArea()
                     .contentShape(Rectangle()).onTapGesture { model.close?() }
                 // Keep window layout fixed; animate a single scene transform.
                 ZStack(alignment: .topLeading) {
-                    ForEach(Array(model.windows.enumerated()).filter { visible.contains($0.element.id) }, id: \.element.id) { index, window in
-                        let placement = camera.placements[index].frame
+                    ForEach(instances) { instance in
+                        let index = instance.index
+                        let window = model.windows[index]
+                        let placement = instance.frame
                         windowSurface(window, index: index)
                             .zIndex(window.focused ? Double(model.windows.count + 2) : Double(model.windows.count - index + 1))
                             .frame(width: placement.width, height: placement.height)
@@ -615,13 +699,21 @@ struct RibbonOverviewView: View {
                     }
                 }.frame(width: 1, height: 1, alignment: .topLeading)
                  .scaleEffect(scale, anchor: .topLeading).offset(x: originX, y: originY)
+                if let origin {
+                    RibbonOriginMarker()
+                        .position(x: (origin.frame.x + origin.frame.width / 2) * scale + originX,
+                                  y: origin.frame.y * scale + originY - 12)
+                        .opacity(model.zoomedOut ? 1 : 0)
+                        .zIndex(Double(model.windows.count + 6))
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
                 VStack {
                     HStack {
                         if !model.previewPermission {
                             Label("Allow Screen Recording to see window previews", systemImage: "rectangle.on.rectangle")
                             Button("Allow Window Previews…") { model.refreshPreviews?() }.buttonStyle(.bordered)
                         } else {
-                            Text(model.message.isEmpty ? "Click or swipe down to enter · J/K to arrange · Scroll to browse" : model.message)
+                            Text(model.message.isEmpty ? "Click or swipe down to enter · J/K to arrange · Scroll with 2 or 3 fingers" : model.message)
                         }
                         Spacer(minLength: 12)
                         Button { model.close?() } label: { Image(systemName: "xmark").padding(8) }
@@ -642,10 +734,10 @@ struct RibbonOverviewView: View {
                          .disabled(model.moving || model.windowActionPending)
                          .opacity(model.zoomedOut ? 1 : 0)
                     }
-                    if overview.maxOffset > 0 {
+                    if overview.scrollExtent > 0 {
                         HStack(spacing: 12) {
                             Button { model.pan?(model.overviewOffset - geometry.size.width * 0.7) } label: { Image(systemName: "chevron.left") }
-                            RibbonScrollTrack(offset: model.overviewOffset, maximum: overview.maxOffset,
+                            RibbonScrollTrack(offset: model.overviewOffset, maximum: overview.scrollExtent,
                                               visibleWidth: overview.availableWidth, pan: { model.pan?($0) })
                             Button { model.pan?(model.overviewOffset + geometry.size.width * 0.7) } label: { Image(systemName: "chevron.right") }
                         }.buttonStyle(.plain).frame(width: min(360, geometry.size.width - 80))
@@ -706,13 +798,22 @@ struct RibbonOverviewView: View {
         }
         .help(window.app_name + " — " + window.label)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(index + 1). \(window.app_name), \(window.label)")
+        .accessibilityLabel("\(index + 1). \(window.app_name), \(window.label)" + (model.originID == window.id ? ", starting window" : ""))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.jump?(window.id) }
         .accessibilityAction(named: "Move left") { if index > 0 { model.move?(window.id, model.windows[index - 1].id, false) } }
         .accessibilityAction(named: "Move right") { if index + 1 < model.windows.count { model.move?(window.id, model.windows[index + 1].id, true) } }
         .accessibilityAction(named: "Close Window") { model.windowAction?(window.id, .close) }
         .accessibilityAction(named: "Quit App") { model.windowAction?(window.id, .quitApp) }
+    }
+}
+
+private struct RibbonOriginMarker: View {
+    var body: some View {
+        Image(systemName: "arrow.down")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color(red: 0.60, green: 0.82, blue: 1.0))
+            .frame(width: 18, height: 20)
     }
 }
 
@@ -747,7 +848,7 @@ private struct RibbonScrollTrack: View {
          .accessibilityElement(children: .ignore).accessibilityLabel("Ribbon position")
          .accessibilityValue("\(Int(100 * min(1, max(0, offset / maximum)))) percent")
          .accessibilityAdjustableAction { direction in
-             pan(min(maximum, max(0, offset + (direction == .increment ? visibleWidth * 0.7 : -visibleWidth * 0.7))))
+             pan(offset + (direction == .increment ? visibleWidth * 0.7 : -visibleWidth * 0.7))
          }
     }
 }

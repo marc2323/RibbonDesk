@@ -124,6 +124,9 @@ pub enum SubCmd {
     Subscribe {
         #[arg(long)]
         json: bool,
+        /// Only window creation and explicit Ribbon membership changes.
+        #[arg(long)]
+        window_behavior: bool,
     },
 
     /// Reads and writes the script state store, the same one `paneru.state`
@@ -237,7 +240,10 @@ fn main() -> Result<()> {
         SubCmd::Restart => service()?.restart()?,
         SubCmd::SendCmd { cmd } => client::run(ClientCommand::Send(cmd))?,
         SubCmd::Query { query } => client::run(ClientCommand::Query(query.kind()))?,
-        SubCmd::Subscribe { json: _ } => client::run(ClientCommand::Subscribe)?,
+        SubCmd::Subscribe {
+            json: _,
+            window_behavior,
+        } => client::run(ClientCommand::Subscribe(window_behavior))?,
         SubCmd::State { state } => client::run(ClientCommand::ScriptState(state.request()?))?,
     }
     Ok(())

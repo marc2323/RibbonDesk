@@ -10,7 +10,7 @@ enum Engine {
 
 MainActor.assumeIsolated {
     _ = NSApplication.shared
-    let records: [[String: Any]] = (0..<5).map { index in
+    let records: [[String: Any]] = (0..<(CommandLine.arguments.contains("--short") ? 2 : 5)).map { index in
         let width = index == 2 ? 1200 : 600
         let x = index < 3 ? index * 604 : index * 604 + 600
         return ["window_id": index + 1, "bundle_id": "fixture", "app_name": ["Browser", "Editor", "Terminal", "Notes", "Files"][index],
@@ -18,15 +18,21 @@ MainActor.assumeIsolated {
                 "frame": ["x": x, "y": 25, "width": width, "height": 800],
                 "ribbon_frame": ["x": x, "y": 0, "width": width, "height": 800]]
     }
-    let document: [String: Any] = ["active": ["display_id": 1, "native_workspace_id": 1, "virtual_workspace_number": 1],
+    let originID = CommandLine.arguments.contains("--origin-first") ? 1 : CommandLine.arguments.contains("--origin-last") ? records.count : 2
+    let document: [String: Any] = ["active": ["display_id": 1, "native_workspace_id": 1, "virtual_workspace_number": 1, "focused_window_id": originID],
         "virtual_workspaces": [["number": 1, "native_workspace_id": 1, "active": true, "windows": records]]]
     let snapshot = try! JSONDecoder().decode(RibbonSnapshot.self, from: JSONSerialization.data(withJSONObject: document))
     let model = RibbonOverviewModel()
     model.windows = snapshot.ribbon
-    model.selectedID = 2
+    model.selectedID = Int32(originID)
+    model.originID = snapshot.overviewOriginID
+    if CommandLine.arguments.contains("--other-selection") { model.selectedID = model.windows.last?.id }
     model.previewPermission = true
     model.zoomedOut = true
-    if CommandLine.arguments.count > 2 { model.overviewOffset = Double(CommandLine.arguments[2]) ?? 0 }
+    model.infiniteRibbon = CommandLine.arguments.contains("--infinite")
+    model.overviewOffset = model.camera.initialOffset(model.camera.overview(width: 1440, height: 900, infinite: model.infiniteRibbon),
+                                                      viewportX: 0, width: 1440, originID: model.originID)
+    if CommandLine.arguments.count > 2, let offset = Double(CommandLine.arguments[2]) { model.overviewOffset = offset }
     for (index, window) in model.windows.enumerated() {
         let width = Int(window.ribbon_frame!.width)
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: 800, bitsPerSample: 8,

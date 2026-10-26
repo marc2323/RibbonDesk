@@ -137,6 +137,7 @@ impl TryFrom<&Event> for LuaEvent {
                 frame,
                 floating,
                 managed,
+                ..
             } => LuaEvent::WindowSpawned(WindowSpawnPayload {
                 window_id: *window_id,
                 pid: *pid,
@@ -256,7 +257,11 @@ impl TryFrom<&Event> for LuaEvent {
             | Event::WindowSetQuery { .. }
             | Event::StateSubscribe { .. }
             | Event::ScriptState { .. }
-            | Event::Ipc { .. } => return Err(NotMarshallable),
+            | Event::Ipc { .. }
+            | Event::OverviewPan { .. }
+            | Event::OverviewPanBegin
+            | Event::OverviewPanEnd { .. }
+            | Event::WindowBehaviorChanged { .. } => return Err(NotMarshallable),
         })
     }
 }

@@ -282,6 +282,12 @@ pub enum Operation {
     /// Copies a `[windows]` configuration rule for the focused window to the
     /// clipboard.
     CopyRule,
+    /// Sets one exact window's Ribbon membership without depending on focus.
+    SetManaged {
+        window: i32,
+        pid: i32,
+        managed: bool,
+    },
 }
 
 /// Defines operations that can be performed on the mouse.

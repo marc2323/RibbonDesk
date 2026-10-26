@@ -260,6 +260,10 @@ pub struct ActiveDisplayMarker;
 #[derive(Component)]
 pub struct FreshMarker;
 
+/// Apply Ribbon gaps once when a window first leaves its native floating state.
+#[derive(Component)]
+pub struct RibbonPaddingNeeded;
+
 /// Marker component used to gather existing processes and windows during initialization.
 #[derive(Component)]
 pub struct ExistingMarker;
@@ -343,6 +347,8 @@ pub struct SwipePaging {
 pub struct ScrollSnapTarget {
     pub entity: Entity,
     pub trailing: bool,
+    /// Translation of this column's selected lap around an infinite ribbon.
+    pub loop_offset: f64,
 }
 
 /// A scroll gesture owns this workspace's viewport until explicit keyboard
@@ -891,6 +897,7 @@ pub fn setup_bevy_app(sender: EventSender, receiver: Receiver<Event>) -> Result<
 
 struct WindowProperties {
     params: Vec<WindowParams>,
+    default_floating: bool,
 }
 
 impl WindowProperties {
@@ -898,14 +905,17 @@ impl WindowProperties {
         let bundle_id = app.bundle_id().unwrap_or_default();
         let title = window.title().unwrap_or_default();
         let params = config.find_window_properties(&title, &bundle_id);
-        Self { params }
+        Self {
+            params,
+            default_floating: config.default_floating(),
+        }
     }
 
     pub fn floating(&self) -> bool {
         self.params
             .iter()
             .find_map(|props| props.floating)
-            .unwrap_or(false)
+            .unwrap_or(self.default_floating)
     }
 
     pub fn insertion(&self) -> Option<usize> {

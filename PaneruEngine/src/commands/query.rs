@@ -30,6 +30,7 @@ use crate::types::wire::{self, Response};
 struct Subscriber {
     channel: Arc<wire::Subscriber>,
     alive: Arc<AtomicBool>,
+    behavior_only: bool,
 }
 
 #[derive(Default, Resource)]
@@ -240,7 +241,11 @@ fn state_subscribe_handler(
     mut subscribers: ResMut<StateSubscribers>,
 ) {
     for event in messages.read() {
-        let Event::StateSubscribe { subscriber } = event else {
+        let Event::StateSubscribe {
+            subscriber,
+            behavior_only,
+        } = event
+        else {
             continue;
         };
         // Reclaim dead ports even on a quiet desktop, before applying the cap.
@@ -255,6 +260,7 @@ fn state_subscribe_handler(
         subscribers.streams.push(Subscriber {
             channel: subscriber.clone(),
             alive: Arc::new(AtomicBool::new(true)),
+            behavior_only: *behavior_only,
         });
     }
 }
@@ -375,6 +381,70 @@ fn collect_state_broadcast_events_for_intent(
     outgoing
 }
 
+fn collect_window_behavior_events(
+    events: &[&Event],
+    windows: &crate::ecs::params::Windows<'_, '_>,
+) -> Vec<StateEvent> {
+    let mut behavior_events = Vec::new();
+    for event in events {
+        match event {
+            Event::WindowDestroyed { window_id, .. } if windows.find(*window_id).is_none() => {
+                behavior_events.push(StateEvent::WindowUnavailable {
+                    window_id: *window_id,
+                });
+            }
+            Event::WindowMinimized { window_id } => {
+                behavior_events.push(StateEvent::WindowUnavailable {
+                    window_id: *window_id,
+                });
+            }
+            Event::WindowSpawned {
+                window_id,
+                pid,
+                app_name,
+                bundle_id,
+                startup,
+                ..
+            } => {
+                if let Some((window, _, unmanaged)) = windows
+                    .find(*window_id)
+                    .and_then(|(_, entity)| windows.get_managed(entity))
+                    && window.role().is_ok_and(|role| role == "AXWindow")
+                    && window
+                        .subrole()
+                        .is_ok_and(|role| role == "AXStandardWindow")
+                {
+                    behavior_events.push(StateEvent::WindowOpened {
+                        window_id: *window_id,
+                        pid: *pid,
+                        app_name: app_name.clone(),
+                        bundle_id: bundle_id.clone(),
+                        startup: *startup,
+                        floating: matches!(unmanaged, Some(Unmanaged::Floating)),
+                    });
+                }
+            }
+            Event::WindowBehaviorChanged {
+                window_id,
+                pid,
+                app_name,
+                bundle_id,
+                floating,
+            } => {
+                behavior_events.push(StateEvent::WindowBehaviorChanged {
+                    window_id: *window_id,
+                    pid: *pid,
+                    app_name: app_name.clone(),
+                    bundle_id: bundle_id.clone(),
+                    floating: *floating,
+                });
+            }
+            _ => {}
+        }
+    }
+    behavior_events
+}
+
 fn state_event_broadcast_handler(
     mut messages: MessageReader<Event>,
     mut subscribers: ResMut<StateSubscribers>,
@@ -384,78 +454,80 @@ fn state_event_broadcast_handler(
     state: QueryStateParams,
 ) {
     let events = messages.read().collect::<Vec<_>>();
-
-    if subscribers.streams.is_empty() {
-        return;
-    }
-
-    let signals = StateBroadcastSignals {
-        virtual_workspace_changed: !active_workspace_changes.is_empty(),
-        windows_changed: events.iter().any(|event| {
-            let Event::WindowMoved { window_id } = event else {
-                return false;
-            };
-            state
-                .windows()
-                .find(*window_id)
-                .and_then(|(_, entity)| state.windows().get_managed(entity))
-                .is_some_and(|(_, _, unmanaged)| matches!(unmanaged, Some(Unmanaged::Floating)))
-        }),
-        window_focused: !focused_changes.is_empty(),
-    };
-    let intent = StateBroadcastIntent::from_events(events, signals);
-    if intent.is_empty() {
-        return;
-    }
-
-    let document = if intent.requires_state() {
-        match state.extract() {
-            Ok(document) => Some(document),
-            Err(err) => {
-                warn!("extracting query state for broadcast: {err}");
-                return;
-            }
+    let mut outgoing = collect_window_behavior_events(&events, state.windows());
+    // A companion listener adds no layout extraction or native geometry reads
+    // to ordinary focus, hover, title or pointer events.
+    if subscribers
+        .streams
+        .iter()
+        .any(|subscriber| !subscriber.behavior_only)
+    {
+        let signals = StateBroadcastSignals {
+            virtual_workspace_changed: !active_workspace_changes.is_empty(),
+            windows_changed: events.iter().any(|event| {
+                let Event::WindowMoved { window_id } = event else {
+                    return false;
+                };
+                state
+                    .windows()
+                    .find(*window_id)
+                    .and_then(|(_, entity)| state.windows().get_managed(entity))
+                    .is_some_and(|(_, _, unmanaged)| matches!(unmanaged, Some(Unmanaged::Floating)))
+            }),
+            window_focused: !focused_changes.is_empty(),
+        };
+        let intent = StateBroadcastIntent::from_events(events, signals);
+        // Preserve the idle fast path while allowing lifecycle-only broadcasts.
+        if intent.is_empty() && outgoing.is_empty() {
+            return;
         }
-    } else {
-        None
-    };
-    let outgoing = collect_state_broadcast_events_for_intent(
-        &intent,
-        document.as_ref(),
-        &mut cache,
-        |window_id| {
-            state
-                .windows()
-                .find(window_id)
-                .and_then(|(window, _)| window.title().ok())
-        },
-    );
-
+        let document = if intent.requires_state() {
+            match state.extract() {
+                Ok(document) => Some(document),
+                Err(err) => {
+                    warn!("extracting query state for broadcast: {err}");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        outgoing.extend(collect_state_broadcast_events_for_intent(
+            &intent,
+            document.as_ref(),
+            &mut cache,
+            |window_id| {
+                state
+                    .windows()
+                    .find(window_id)
+                    .and_then(|(window, _)| window.title().ok())
+            },
+        ));
+    }
     if outgoing.is_empty() {
         return;
     }
-
-    // Each send is non-blocking and bounded, so a stalled reader just drops the
-    // event instead of blocking the main thread; an exited subscriber is
-    // marked below and reaped here on the next broadcast.
     subscribers
         .streams
         .retain(|subscriber| subscriber.alive.load(Ordering::Relaxed));
-
-    let events = Arc::new(outgoing);
     for subscriber in &subscribers.streams {
-        for event in events.iter() {
+        for event in &outgoing {
+            if subscriber.behavior_only
+                && !matches!(
+                    event,
+                    StateEvent::WindowOpened { .. }
+                        | StateEvent::WindowBehaviorChanged { .. }
+                        | StateEvent::WindowUnavailable { .. }
+                )
+            {
+                continue;
+            }
             match subscriber.channel.try_send(event) {
                 Ok(()) | Err(wire::Error::WouldBlock) => {}
-                // The subscriber's process is gone; reaped on the next
-                // broadcast. This is a real signal from the kernel rather than
-                // a write error a merely slow reader would also produce.
                 Err(wire::Error::PeerGone) => {
                     subscriber.alive.store(false, Ordering::Relaxed);
                     break;
                 }
-                // Alive but not keeping up. The event is lost; the subscriber
-                // is kept.
                 Err(err) => warn!("pushing broadcast event: {err}"),
             }
         }
@@ -467,6 +539,54 @@ mod tests {
     use super::*;
     use crate::ecs::state::{Frame, PaneruVirtualWorkspaceState, PaneruWindowState};
     use crate::events::Event as PaneruEvent;
+
+    #[test]
+    fn behavior_stream_reports_final_membership_and_startup_identity() {
+        let config =
+            crate::config::Config::try_from("[options]\ndefault_floating = true\n").unwrap();
+        let mut harness = crate::tests::TestHarness::new()
+            .with_config(config)
+            .with_windows(1);
+        for _ in 0..5 {
+            harness.app.update();
+        }
+        let event = PaneruEvent::WindowSpawned {
+            window_id: 0,
+            pid: crate::tests::TEST_PROCESS_ID,
+            app_name: "TestApp".into(),
+            bundle_id: "test".into(),
+            title: String::new(),
+            frame: Frame {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 400,
+            },
+            floating: false,
+            managed: true,
+            startup: true,
+        };
+        let mut system =
+            bevy::ecs::system::SystemState::<crate::ecs::params::Windows>::new(harness.world());
+        let windows = system.get(harness.world()).unwrap();
+        let output = collect_window_behavior_events(&[&event], &windows);
+        assert!(matches!(
+            output.as_slice(),
+            [StateEvent::WindowOpened {
+                window_id: 0,
+                floating: true,
+                startup: true,
+                ..
+            }]
+        ));
+        assert!(
+            collect_window_behavior_events(
+                &[&PaneruEvent::WindowFocused { window_id: 0 }],
+                &windows
+            )
+            .is_empty()
+        );
+    }
 
     #[test]
     fn subscriptions_are_bounded_and_dead_clients_free_capacity() {
@@ -490,6 +610,7 @@ mod tests {
                 .resource_mut::<Messages<Event>>()
                 .write(Event::StateSubscribe {
                     subscriber: Arc::new(subscriber),
+                    behavior_only: false,
                 });
             clients.push(client);
         }
@@ -509,6 +630,7 @@ mod tests {
             .resource_mut::<Messages<Event>>()
             .write(Event::StateSubscribe {
                 subscriber: subscriber.clone(),
+                behavior_only: false,
             });
         world.run_system(handler).unwrap();
         let streams = &world.resource::<StateSubscribers>().streams;

@@ -105,6 +105,8 @@ pub enum Request {
     ScriptState(ScriptStateRequest),
     /// Ask for state events to be pushed as they happen.
     Subscribe,
+    /// Lifecycle and explicit Ribbon membership events, without layout queries.
+    SubscribeWindowBehavior,
 }
 
 /// What a client wants of the script-state store.
@@ -188,6 +190,7 @@ mod tests {
         round_trip(&Request::WindowSet);
         round_trip(&Request::WindowSetApply(vec![LayoutOp::Focus(7)]));
         round_trip(&Request::Subscribe);
+        round_trip(&Request::SubscribeWindowBehavior);
         round_trip(&Request::ScriptState(ScriptStateRequest::Get {
             key: "pads.term".to_string(),
         }));

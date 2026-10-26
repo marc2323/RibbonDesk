@@ -17,6 +17,7 @@ struct Preferences: Codable, Equatable, Sendable {
     var snapBack: Bool = false
     var snapExitDistance: Double = 0.12
     var threeFingerPaging: Bool = true
+    var infiniteRibbon: Bool = false
     var overviewAnimation: Bool = false
     var focusMode: FocusMode = .hover
     var launchAtLogin: Bool = false
@@ -25,7 +26,7 @@ struct Preferences: Codable, Equatable, Sendable {
     var borderColor: String = BorderColor.defaultHex
     static let defaults = Preferences(speed: 0.65, gap: 6)
 
-    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = [], borderEnabled: Bool = true, borderColor: String = BorderColor.defaultHex, momentum: Double = 1.0, snapSpeed: Double = 0.8, snapVisible: Double = 0.55, momentumDecay: Double = 4.0, snapAnimation: Double = 1.0, snapFullWidth: Bool = true, snapHalfWidth: Bool = true, snapBack: Bool = false, snapExitDistance: Double = 0.12, threeFingerPaging: Bool = true, overviewAnimation: Bool = false) {
+    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = [], borderEnabled: Bool = true, borderColor: String = BorderColor.defaultHex, momentum: Double = 1.0, snapSpeed: Double = 0.8, snapVisible: Double = 0.55, momentumDecay: Double = 4.0, snapAnimation: Double = 1.0, snapFullWidth: Bool = true, snapHalfWidth: Bool = true, snapBack: Bool = false, snapExitDistance: Double = 0.12, threeFingerPaging: Bool = true, overviewAnimation: Bool = false, infiniteRibbon: Bool = false) {
         self.speed = speed
         self.momentum = momentum
         self.momentumDecay = momentumDecay
@@ -37,6 +38,7 @@ struct Preferences: Codable, Equatable, Sendable {
         self.snapBack = snapBack
         self.snapExitDistance = snapExitDistance
         self.threeFingerPaging = threeFingerPaging
+        self.infiniteRibbon = infiniteRibbon
         self.overviewAnimation = overviewAnimation
         self.gap = gap
         self.focusMode = focusMode
@@ -60,6 +62,7 @@ struct Preferences: Codable, Equatable, Sendable {
         snapBack = try values.decodeIfPresent(Bool.self, forKey: .snapBack) ?? false
         snapExitDistance = try values.decodeIfPresent(Double.self, forKey: .snapExitDistance) ?? 0.12
         threeFingerPaging = try values.decodeIfPresent(Bool.self, forKey: .threeFingerPaging) ?? true
+        infiniteRibbon = try values.decodeIfPresent(Bool.self, forKey: .infiniteRibbon) ?? false
         overviewAnimation = try values.decodeIfPresent(Bool.self, forKey: .overviewAnimation) ?? false
         // Existing installations have only speed and gap. Preserve both values.
         focusMode = try values.decodeIfPresent(FocusMode.self, forKey: .focusMode) ?? .hover
@@ -82,7 +85,7 @@ struct Preferences: Codable, Equatable, Sendable {
                     snapAnimation: snapAnimation.isFinite ? min(4, max(0.2, snapAnimation)) : 1.0,
                     snapFullWidth: snapFullWidth, snapHalfWidth: snapHalfWidth, snapBack: snapBack,
                     snapExitDistance: snapExitDistance.isFinite ? min(0.5, max(0, snapExitDistance)) : 0.12, threeFingerPaging: threeFingerPaging,
-                    overviewAnimation: overviewAnimation)
+                    overviewAnimation: overviewAnimation, infiniteRibbon: infiniteRibbon)
     }
 
     func luaSource(disabledSpaceIDs: [UInt64]) -> String {
@@ -97,7 +100,7 @@ struct Preferences: Codable, Equatable, Sendable {
         let excludedIDs = disabledSpaceIDs.map(String.init).joined(separator: ", ")
         return """
         -- Written by RibbonDesk.
-        return { speed = \(speed), momentum = \(momentum), momentum_decay = \(momentumDecay), snap_speed = \(snapSpeed), snap_visible = \(snapVisible), snap_animation = \(snapAnimation), snap_full_width = \(value.snapFullWidth), snap_half_width = \(value.snapHalfWidth), snap_back = \(value.snapBack), snap_exit_distance = \(snapExitDistance), three_finger_paging = \(value.threeFingerPaging), gap = \(value.gap), focus_follows_mouse = \(value.focusMode == .hover), disabled_spaces = { \(excludedIDs) }, border_enabled = \(value.borderEnabled), border_color = "\(value.borderColor)" }
+        return { speed = \(speed), momentum = \(momentum), momentum_decay = \(momentumDecay), snap_speed = \(snapSpeed), snap_visible = \(snapVisible), snap_animation = \(snapAnimation), snap_full_width = \(value.snapFullWidth), snap_half_width = \(value.snapHalfWidth), snap_back = \(value.snapBack), snap_exit_distance = \(snapExitDistance), three_finger_paging = \(value.threeFingerPaging), infinite_ribbon = \(value.infiniteRibbon), gap = \(value.gap), focus_follows_mouse = \(value.focusMode == .hover), disabled_spaces = { \(excludedIDs) }, border_enabled = \(value.borderEnabled), border_color = "\(value.borderColor)" }
 
         """
     }

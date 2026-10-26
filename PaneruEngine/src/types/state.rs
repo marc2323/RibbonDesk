@@ -240,6 +240,25 @@ pub enum StateEvent {
     /// Display configuration changed. `display_id` is `null` for a global
     /// change Paneru cannot pin to one display.
     DisplayChanged { display_id: Option<u32> },
+    /// Discovered standard window, after initial placement and session restore.
+    WindowOpened {
+        window_id: i32,
+        pid: i32,
+        app_name: String,
+        bundle_id: String,
+        floating: bool,
+        startup: bool,
+    },
+    /// An explicit user action changed one window's Ribbon membership.
+    WindowBehaviorChanged {
+        window_id: i32,
+        pid: i32,
+        app_name: String,
+        bundle_id: String,
+        floating: bool,
+    },
+    /// A closed or minimized window no longer needs a companion prompt.
+    WindowUnavailable { window_id: i32 },
 }
 
 impl StateEvent {

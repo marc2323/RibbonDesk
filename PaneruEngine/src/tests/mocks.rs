@@ -95,6 +95,7 @@ struct MockStateInner {
     native_tab_queries: (usize, usize),
     close_requests: Vec<WinID>,
     quit_requests: Vec<Pid>,
+    padding_requests: Vec<(WinID, bool, i32)>,
 }
 
 #[derive(Clone)]
@@ -119,6 +120,7 @@ impl MockState {
                 native_tab_queries: (0, 0),
                 close_requests: Vec::new(),
                 quit_requests: Vec::new(),
+                padding_requests: Vec::new(),
             })),
         }
     }
@@ -130,6 +132,10 @@ impl MockState {
     pub fn window_action_requests(&self) -> (Vec<WinID>, Vec<Pid>) {
         let inner = self.inner.force_read();
         (inner.close_requests.clone(), inner.quit_requests.clone())
+    }
+
+    pub fn padding_requests(&self) -> Vec<(WinID, bool, i32)> {
+        self.inner.force_read().padding_requests.clone()
     }
 
     #[allow(dead_code)]
@@ -622,7 +628,17 @@ impl MockState {
             .returning(move |_psn, _focused, _focused_psn| {
                 s.set_focused_window(id);
             });
-        mw.expect_set_padding().return_const(());
+        let s = self.clone();
+        mw.expect_set_padding().returning(move |padding| {
+            let (horizontal, value) = match padding {
+                crate::manager::WindowPadding::Horizontal(value) => (true, value),
+                crate::manager::WindowPadding::Vertical(value) => (false, value),
+            };
+            s.inner
+                .force_write()
+                .padding_requests
+                .push((id, horizontal, value));
+        });
 
         Window::new(Box::new(mw))
     }

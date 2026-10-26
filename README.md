@@ -3,7 +3,7 @@
 A scrolling ribbon of windows for macOS, with a native menu-bar app and an
 overview for navigating and arranging your whole workspace.
 
-[Download v1.19](https://github.com/marc2323/RibbonDesk/releases/tag/v1.19) ·
+[Download v1.20](https://github.com/marc2323/RibbonDesk/releases/tag/v1.20) ·
 [Settings guide](PaneruPreferences/README.md) ·
 [Build and development](docs/DEVELOPMENT.md)
 
@@ -17,14 +17,16 @@ overview for navigating and arranging your whole workspace.
   activation mode, window gaps, the active-window outline, and saved feel presets.
 - **Choose where it runs.** Enable window management separately for each macOS
   Desktop, pause it when needed, and optionally start it at login.
+- **Choose which windows join.** New windows float until **Control–Option–T**.
+  App Behavior remembers app choices, offers optional prompts, and keeps a local log.
 
 ## Install
 
 **Requirements:** Apple Silicon Mac, macOS 13 or later. The release download
 includes the engine; Rust, Homebrew, and Xcode are not required.
 
-1. Download **RibbonDesk-1.19-macos-arm64.zip** from the
-   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.19) and extract it.
+1. Download **RibbonDesk-1.20-macos-arm64.zip** from the
+   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.20) and extract it.
 2. If RibbonDesk (or the older Paneru Settings app) is running, choose **Quit**
    in its menu-bar settings first.
 3. Open **Install.command** from the extracted folder. Keep the app, installer,
@@ -34,7 +36,7 @@ includes the engine; Rust, Homebrew, and Xcode are not required.
 5. Complete the macOS **Accessibility** setup when requested. Allow **Screen
    Recording** for RibbonDesk to enable window previews in overview.
 
-**Signing status:** v1.19 uses a local development signature and is **not
+**Signing status:** v1.20 uses a local development signature and is **not
 Apple-notarized**. macOS may require manual approval before opening a downloaded
 copy. See [Apple’s guidance for opening apps](https://support.apple.com/en-us/102445).
 
@@ -45,6 +47,11 @@ To compile and install your own copy, see the [development guide](docs/DEVELOPME
 Click the three-window menu-bar icon to open Settings, or press **Control–Option–S**.
 Changes apply and save automatically. **Pause/Start**, **Restart**, **Overview**,
 and **Quit** are under Window management.
+
+New windows float at their normal size. Press **Control–Option–T** to add the
+focused window to the Ribbon or float it again. **App Behavior…** in Settings
+lets you save app defaults, enable optional prompts, and review recent decisions.
+Saved sessions retain their existing arrangement.
 
 Swipe horizontally with **three fingers** to move through the ribbon. By default,
 each swipe advances one window alignment; turn off **Three-finger paging** for
@@ -58,12 +65,14 @@ the selected window.
 
 Swipe **up with three fingers**, press **Control–Option–O**, or click **Overview**
 in Settings. Windows keep their ribbon order, proportions, gaps, and stacks.
-The view starts near your current position and scrolls horizontally when the
-ribbon is longer than the screen.
+The view opens with the window you came from centered, and scrolls horizontally.
+The **Infinite ribbon** setting also joins both ends in Overview.
+Three-finger scrolling coasts smoothly after release. A small light-blue arrow
+above the starting window stays with it as selection changes.
 
 | Action | Control |
 | --- | --- |
-| Browse the ribbon | Two-finger scroll, mouse wheel, or the bottom scroll track |
+| Browse the ribbon | Two- or three-finger horizontal scrolling, mouse wheel, or the bottom scroll track |
 | Select a preview | Hover or use the left/right arrow keys |
 | Enter a window | Click its preview or press Return |
 | Enter the window under your cursor | Three-finger swipe down |

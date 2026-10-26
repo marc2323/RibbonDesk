@@ -96,6 +96,8 @@ struct SettingsView: View {
     private var scrolling: some View {
         let settings = model.draft
         return section("Scrolling") {
+            toggleRow("Infinite ribbon", detail: "Loop both ends", value: $model.infiniteRibbon)
+                .help("Keep scrolling past the last window to reach the first, or past the first to reach the last, in the ribbon and Overview.")
             toggleRow("Three-finger paging", detail: "One snap", value: $model.threeFingerPaging)
             caption("On: every three-finger swipe advances one window alignment, including apps with fixed widths. Only Snap animation applies; other sliders still tune Control–Option scrolling. Off restores free scrolling.")
                 .padding(.bottom, 5)
@@ -128,6 +130,8 @@ struct SettingsView: View {
                     .accessibilityLabel("Quit RibbonDesk")
             }.frame(height: 22).disabled(model.applying || model.engineBusy)
             toggleRow("Overview animation", detail: "Off switches instantly", value: $model.overviewAnimation)
+            Button("App Behavior…") { model.appBehaviorAction?() }
+                .help("Choose how new windows open, remember app choices, and view the activity log.")
             if !model.currentDesktopEnabled { caption("Enable This Desktop to start window management here.") }
         }
     }
