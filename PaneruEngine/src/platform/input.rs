@@ -131,6 +131,9 @@ pub(super) struct InputHandler {
     /// The previous event's fingers, for swipe gesture detection.
     finger_position: Option<Vec<Touch>>,
     overview_swipe: OverviewSwipe,
+    /// Consume macOS wheel/momentum duplicates of a raw three-finger gesture.
+    overview_scroll_owned: bool,
+    overview_contact_active: bool,
     /// The `CFMachPort` representing the `CGEventTap`.
     tap_port: Option<CFRetained<CFMachPort>>,
     dock_tap_port: Option<CFRetained<CFMachPort>>,
@@ -176,6 +179,8 @@ impl InputHandler {
             config,
             finger_position: None,
             overview_swipe: OverviewSwipe::default(),
+            overview_scroll_owned: false,
+            overview_contact_active: false,
             tap_port: None,
             dock_tap_port: None,
             dock_run_loop_source: None,
@@ -467,6 +472,8 @@ impl InputHandler {
             // strip gestures, even during the engine's shutdown interval.
             self.finger_position = None;
             self.overview_swipe = OverviewSwipe::default();
+            self.overview_scroll_owned = false;
+            self.overview_contact_active = false;
             self.last_swipe_time = None;
             self.last_window_scroll = None;
             self.owned_scroll = None;
@@ -474,6 +481,9 @@ impl InputHandler {
         }
 
         if crate::ecs::overview::input_is_active() {
+            if event_type == CGEventType::ScrollWheel {
+                return self.suppress_overview_wheel(event);
+            }
             if event_type == CGEventType::KeyDown
                 && CGEvent::integer_value_field(Some(event), CGEventField::KeyboardEventKeycode)
                     == 53
@@ -539,6 +549,35 @@ impl InputHandler {
         }
         // Do not intercept this event, let it fall through.
         false
+    }
+
+    fn suppress_overview_wheel(&mut self, event: &CGEvent) -> bool {
+        let raw_three = self
+            .finger_position
+            .as_ref()
+            .is_some_and(|fingers| fingers.len() == 3);
+        let phase =
+            CGEvent::integer_value_field(Some(event), CGEventField::ScrollWheelEventScrollPhase);
+        let momentum =
+            CGEvent::integer_value_field(Some(event), CGEventField::ScrollWheelEventMomentumPhase);
+        // A fresh two-finger contact or an ordinary wheel owns its own input.
+        // A three-finger native momentum tail remains consumed through its end.
+        if !raw_three
+            && (phase & i64::from(CGScrollPhase::Began.0) != 0 || phase == 0 && momentum == 0)
+        {
+            self.overview_scroll_owned = false;
+        }
+        raw_three || self.overview_scroll_owned
+    }
+
+    fn end_overview_contact(&mut self, overview_active: bool, cancelled: bool) {
+        if self.overview_contact_active
+            && overview_active
+            && let Some(events) = &self.events
+        {
+            _ = events.send(Event::OverviewPanEnd { cancelled });
+        }
+        self.overview_contact_active = false;
     }
 
     /// Use the configured modifier to scroll the strip or select an adjacent window.
@@ -665,10 +704,14 @@ impl InputHandler {
         const NS_EVENT_PHASE_ENDED: usize = 1 << 3; // 8
         const NS_EVENT_PHASE_CANCELLED: usize = 1 << 4; // 16
 
-        let Some(configured_fingers) = self
-            .config
-            .swipe_gesture_fingers()
-            .filter(|fingers| *fingers >= GESTURE_MINIMAL_FINGERS)
+        let overview_active = crate::ecs::overview::input_is_active();
+        let configured = if overview_active {
+            Some(3)
+        } else {
+            self.config.swipe_gesture_fingers()
+        };
+        let Some(configured_fingers) =
+            configured.filter(|fingers| *fingers >= GESTURE_MINIMAL_FINGERS)
         else {
             // No valid gesture is configured, so leave native macOS gestures alone.
             return false;
@@ -686,14 +729,18 @@ impl InputHandler {
             // Fingers lifted off touchpad.
             let phase = ns_event.phase();
             if (phase.0 & NS_EVENT_PHASE_CANCELLED != 0 || phase.0 & NS_EVENT_PHASE_ENDED != 0)
-                && let Some(events) = &self.events
+                && self.events.is_some()
             {
-                if phase.0 & NS_EVENT_PHASE_CANCELLED != 0 {
-                    _ = events.send(Event::TouchpadDown);
+                self.end_overview_contact(overview_active, phase.0 & NS_EVENT_PHASE_CANCELLED != 0);
+                if let Some(events) = &self.events {
+                    if phase.0 & NS_EVENT_PHASE_CANCELLED != 0 {
+                        _ = events.send(Event::TouchpadDown);
+                    }
+                    _ = events.send(Event::TouchpadUp);
                 }
-                _ = events.send(Event::TouchpadUp);
                 self.finger_position = None;
                 let consumed = self.overview_swipe.axis == OverviewAxis::Up
+                    || overview_active && self.overview_scroll_owned
                     || self.overview_swipe.axis == OverviewAxis::Down
                         && self
                             .last_overview_swipe
@@ -707,6 +754,7 @@ impl InputHandler {
                 self.last_overview_swipe = None;
             }
             if !gesture_should_intercept(Some(configured_fingers), fingers.len()) {
+                self.end_overview_contact(overview_active, true);
                 if self.finger_position.take().is_some()
                     && let Some(events) = &self.events
                 {
@@ -717,6 +765,13 @@ impl InputHandler {
             }
             if fingers.iter().any(|finger| finger.began) {
                 self.overview_swipe = OverviewSwipe::default();
+                if overview_active {
+                    self.overview_scroll_owned = true;
+                    self.overview_contact_active = true;
+                    if let Some(events) = &self.events {
+                        _ = events.send(Event::OverviewPanBegin);
+                    }
+                }
                 // A fresh gesture: nothing carries over from the last one.
                 if let Some(events) = &self.events {
                     _ = events.send(Event::TouchpadDown);
@@ -741,7 +796,12 @@ impl InputHandler {
                     })
                     .unzip();
 
-                let intercept = self.handle_gesture_delta(&x_deltas, &y_deltas, configured_fingers);
+                let intercept = self.handle_gesture_delta(
+                    &x_deltas,
+                    &y_deltas,
+                    configured_fingers,
+                    overview_active,
+                );
                 self.finger_position = Some(fingers);
                 return intercept;
             }
@@ -758,14 +818,18 @@ impl InputHandler {
         x_deltas: &[f64],
         y_deltas: &[f64],
         configured_fingers: usize,
+        overview_active: bool,
     ) -> bool {
         let Some(events) = &self.events else {
             return false;
         };
         let x_sum: f64 = x_deltas.iter().sum();
         let y_sum: f64 = y_deltas.iter().sum();
-        let overview_active = crate::ecs::overview::input_is_active();
-        if self.config.ribbon_overview() && configured_fingers == 3 && x_deltas.len() == 3 {
+        let was_pending = self.overview_swipe.axis == OverviewAxis::Pending;
+        if (self.config.ribbon_overview() || overview_active)
+            && configured_fingers == 3
+            && x_deltas.len() == 3
+        {
             if let Some(action) =
                 self.overview_swipe
                     .action(x_sum / 3.0, y_sum / 3.0, overview_active)
@@ -791,7 +855,29 @@ impl InputHandler {
                 _ => {}
             }
         }
-        if crate::ecs::overview::input_is_active() {
+        if overview_active {
+            if self.overview_swipe.axis == OverviewAxis::Horizontal
+                && x_sum.is_finite()
+                && x_sum != 0.0
+            {
+                let direction = match self.config.swipe_gesture_direction() {
+                    SwipeGestureDirection::Natural => 1.0,
+                    SwipeGestureDirection::Reversed => -1.0,
+                };
+                if !self.overview_contact_active {
+                    _ = events.send(Event::OverviewPanBegin);
+                    self.overview_contact_active = true;
+                }
+                _ = events.send(Event::OverviewPan {
+                    delta: (if was_pending {
+                        self.overview_swipe.x * 3.0
+                    } else {
+                        x_sum
+                    }) * self.config.swipe_sensitivity()
+                        * direction,
+                });
+                self.overview_scroll_owned = true;
+            }
             return true;
         }
         if x_sum.abs() >= y_sum.abs() {
@@ -1071,6 +1157,37 @@ fn paging_recognizes_tiny_three_finger_motion_without_treating_a_touch_as_a_swip
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overview_keeps_two_finger_scrolls_and_consumes_three_finger_wheel_duplicates() {
+        let (sender, _receiver) = EventSender::new();
+        let mut handler = InputHandler::new(sender, Config::default());
+        assert!(!handler.suppress_overview_wheel(&scroll_event(
+            CGScrollPhase::Began,
+            0,
+            false,
+            1.0
+        )));
+        assert!(!handler.suppress_overview_wheel(&scroll_event(CGScrollPhase(0), 2, false, 1.0)));
+        handler.overview_scroll_owned = true;
+        for momentum in [1, 2, 4] {
+            assert!(handler.suppress_overview_wheel(&scroll_event(
+                CGScrollPhase(0),
+                momentum,
+                false,
+                1.0
+            )));
+        }
+        assert!(
+            !handler.suppress_overview_wheel(&scroll_event(CGScrollPhase::Began, 0, false, 1.0)),
+            "A new two-finger gesture works immediately after three-finger scrolling"
+        );
+        handler.overview_scroll_owned = true;
+        assert!(
+            !handler.suppress_overview_wheel(&scroll_event(CGScrollPhase(0), 0, false, 1.0)),
+            "An ordinary mouse wheel also retains its input"
+        );
+    }
 
     fn scroll_event(
         phase: CGScrollPhase,
@@ -1449,6 +1566,64 @@ mod tests {
 #[cfg(test)]
 mod overview_tests {
     use super::*;
+    #[test]
+    fn overview_release_is_sent_once_and_contact_changes_cancel_momentum() {
+        let (sender, receiver) = EventSender::new();
+        let mut handler = InputHandler::new(sender, Config::default());
+        handler.overview_contact_active = true;
+        handler.overview_scroll_owned = true;
+        handler.end_overview_contact(true, false);
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            Event::OverviewPanEnd { cancelled: false }
+        ));
+        assert!(
+            handler.overview_scroll_owned,
+            "The duplicate native momentum tail remains owned"
+        );
+        handler.end_overview_contact(true, false);
+        assert!(receiver.try_recv().is_err());
+        handler.overview_contact_active = true;
+        handler.end_overview_contact(true, true);
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            Event::OverviewPanEnd { cancelled: true }
+        ));
+        handler.overview_contact_active = true;
+        handler.end_overview_contact(false, false);
+        assert!(
+            receiver.try_recv().is_err(),
+            "Closed overview cannot receive a stale release"
+        );
+    }
+    #[test]
+    fn three_finger_overview_pans_are_free_and_do_not_scroll_the_native_ribbon() {
+        for reversed in [false, true] {
+            let (sender, receiver) = EventSender::new();
+            let direction = if reversed { "Reversed" } else { "Natural" };
+            let config = Config::try_from(format!("[swipe]\nribbon_overview = true\nthree_finger_paging = true\nsensitivity = 1.0\n[swipe.gesture]\ndirection = '{direction}'\n").as_str()).unwrap();
+            let mut handler = InputHandler::new(sender, config);
+            for _ in 0..3 {
+                assert!(handler.handle_gesture_delta(&[0.005; 3], &[0.0; 3], 3, true));
+            }
+            assert!(matches!(
+                receiver.try_recv().unwrap(),
+                Event::OverviewPanBegin
+            ));
+            let first = receiver.try_recv().unwrap();
+            assert!(
+                matches!(first, Event::OverviewPan { delta } if (delta - if reversed { -0.045 } else { 0.045 }).abs() < 0.0001)
+            );
+            assert!(handler.handle_gesture_delta(&[-0.01; 3], &[0.0; 3], 3, true));
+            assert!(
+                matches!(receiver.try_recv().unwrap(), Event::OverviewPan { delta } if (delta - if reversed { 0.03 } else { -0.03 }).abs() < 0.0001)
+            );
+            assert!(
+                receiver.try_recv().is_err(),
+                "No native ribbon movement, paging or focus event is emitted"
+            );
+        }
+    }
     #[test]
     fn upward_swipe_accumulates_and_fires_once() {
         let mut swipe = OverviewSwipe::default();

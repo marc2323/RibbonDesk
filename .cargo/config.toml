@@ -1,0 +1,5 @@
+# Reuse the same outputs for builds, Clippy, tests, and the vendored crate.
+# Paths are relative to the repository root, including when run in a subfolder.
+[build]
+target-dir = ".build/paneru-engine"
+incremental = false

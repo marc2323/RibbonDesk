@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use super::{TEST_DISPLAY_WIDTH, TestHarness};
 use crate::commands::{Command, Direction, Operation};
 use crate::config::Config;
+use crate::ecs::layout::LayoutStrip;
 use crate::ecs::{ActiveWorkspaceMarker, Position, ScrollPositionHold, Scrolling};
 use crate::events::Event;
 use crate::util::round_px;
@@ -736,4 +737,195 @@ fn paging_visits_both_edges_of_nonstandard_columns_without_skipping_them() {
             assert_eq!(settled(&mut h), expected, "return at width ratio {ratio}");
         }
     }
+}
+
+fn columns(h: &mut TestHarness) -> Vec<Entity> {
+    let world = h.world();
+    world
+        .query_filtered::<&LayoutStrip, With<ActiveWorkspaceMarker>>()
+        .single(world)
+        .expect("active ribbon")
+        .all_columns()
+}
+
+fn window_x(h: &mut TestHarness, entity: Entity) -> i32 {
+    h.world()
+        .get::<Position>(entity)
+        .expect("window position")
+        .x
+}
+
+#[test]
+fn infinite_paging_loops_in_both_directions_without_changing_window_order() {
+    for reversed in [false, true] {
+        let mut h = harness_with_tuning(
+            0.0,
+            0.0,
+            0.55,
+            Some(1.0),
+            reversed,
+            "three_finger_paging = true\ninfinite_ribbon = true",
+        );
+        let order = columns(&mut h);
+        let delta = if reversed { -0.001 } else { 0.001 };
+        // Two whole laps verify normalization and that every gesture still
+        // selects exactly one adjacent window.
+        for step in 1..=24 {
+            frame(
+                &mut h,
+                [Event::TouchpadDown, swipe(delta), Event::TouchpadUp],
+            );
+            let expected = -i32::try_from(step % 12).unwrap() * TEST_DISPLAY_WIDTH;
+            assert_eq!(settled(&mut h), expected, "forward step {step}");
+            assert_eq!(window_x(&mut h, order[step % 12]), 0);
+            assert_eq!(columns(&mut h), order);
+        }
+        for step in 1..=24 {
+            frame(
+                &mut h,
+                [Event::TouchpadDown, swipe(-delta), Event::TouchpadUp],
+            );
+            let index = (12 - step % 12) % 12;
+            assert_eq!(
+                settled(&mut h),
+                -i32::try_from(index).unwrap() * TEST_DISPLAY_WIDTH
+            );
+            assert_eq!(window_x(&mut h, order[index]), 0);
+        }
+    }
+}
+
+#[test]
+fn infinite_free_scroll_keeps_columns_adjacent_across_the_seam_and_multiple_laps() {
+    let mut h = harness_with_tuning(0.0, 0.0, 0.55, Some(1.0), false, "infinite_ribbon = true");
+    let order = columns(&mut h);
+    h.run(vec![Event::Command {
+        command: Command::Window(Operation::Focus(Direction::Last)),
+    }]);
+    frame(&mut h, [Event::TouchpadDown, swipe(0.25)]);
+    // At the join, the tail of the last column and the head of the first
+    // occupy one continuous screen, with no backward traversal or reorder.
+    assert_eq!(window_x(&mut h, order[11]), -256);
+    assert_eq!(window_x(&mut h, order[0]), 768);
+    frame(&mut h, [swipe(36.5), Event::TouchpadUp]);
+    assert_eq!(settled(&mut h), -12_032);
+    assert_eq!(window_x(&mut h, order[11]), -768);
+    assert_eq!(window_x(&mut h, order[0]), 256);
+    assert_eq!(columns(&mut h), order);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(-0.75), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), -11 * TEST_DISPLAY_WIDTH);
+    assert_eq!(window_x(&mut h, order[11]), 0);
+}
+
+#[test]
+fn infinite_flick_preserves_its_forward_snap_through_the_join() {
+    let mut h = harness_with_tuning(1.0, 0.8, 0.55, Some(1.0), false, "infinite_ribbon = true");
+    let order = columns(&mut h);
+    h.run(vec![Event::Command {
+        command: Command::Window(Operation::Focus(Direction::Last)),
+    }]);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(0.06), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), 0);
+    assert_eq!(window_x(&mut h, order[0]), 0);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(-0.06), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), -11 * TEST_DISPLAY_WIDTH);
+    assert_eq!(window_x(&mut h, order[11]), 0);
+}
+
+#[test]
+fn disabling_an_infinite_ribbon_restores_bounds_and_keeps_the_visible_window() {
+    let mut h = harness_with_tuning(0.0, 0.0, 0.55, Some(1.0), false, "infinite_ribbon = true");
+    let order = columns(&mut h);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(-0.25), Event::TouchpadUp],
+    );
+    settled(&mut h);
+    assert_eq!(window_x(&mut h, order[0]), 256);
+    // Use an ordinary non-looping configuration as a live reload.
+    let mut bounded = harness(0.0, 0.0, 0.55, true, false);
+    let config = bounded.world().resource::<Config>().clone();
+    #[cfg(feature = "lua")]
+    h.world().resource::<Config>().replace_inner_from(&config);
+    #[cfg(not(feature = "lua"))]
+    h.world().insert_resource(config);
+    h.advance(Duration::from_millis(500));
+    assert_eq!(offset(&mut h), 0);
+    assert_eq!(window_x(&mut h, order[0]), 0);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(-1.0), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), 0, "the first-window boundary is restored");
+    h.run(vec![Event::Command {
+        command: Command::Window(Operation::Focus(Direction::Last)),
+    }]);
+    frame(&mut h, [Event::TouchpadDown, swipe(1.0), Event::TouchpadUp]);
+    assert_eq!(settled(&mut h), -11 * TEST_DISPLAY_WIDTH);
+    assert_eq!(columns(&mut h), order);
+}
+
+#[test]
+fn infinite_short_ribbons_reuse_each_window_and_single_columns_keep_their_bounds() {
+    let mut template =
+        harness_with_tuning(0.0, 0.0, 0.55, Some(0.5), false, "infinite_ribbon = true");
+    let config = template.world().resource::<Config>().clone();
+    for count in [1, 2] {
+        let mut h = TestHarness::new()
+            .with_config(config.clone())
+            .with_windows(count);
+        h.run(vec![
+            Event::MenuOpened { window_id: 0 },
+            Event::Command {
+                command: Command::Window(Operation::Focus(Direction::First)),
+            },
+        ]);
+        let order = columns(&mut h);
+        frame(&mut h, [Event::TouchpadDown, swipe(0.5), Event::TouchpadUp]);
+        let end = settled(&mut h);
+        if count == 1 {
+            assert_eq!(end, 0, "a lone half-width window cannot loop into itself");
+        } else {
+            assert_eq!(window_x(&mut h, order[1]), 0);
+            frame(&mut h, [Event::TouchpadDown, swipe(1.0), Event::TouchpadUp]);
+            assert_eq!(settled(&mut h), 0);
+            assert_eq!(window_x(&mut h, order[0]), 0);
+        }
+        assert_eq!(columns(&mut h), order);
+    }
+}
+
+#[test]
+fn infinite_paging_reaches_half_width_columns_on_either_side_of_the_join() {
+    let mut h = harness_with_tuning(
+        0.0,
+        0.0,
+        0.55,
+        Some(0.5),
+        false,
+        "infinite_ribbon = true\nthree_finger_paging = true",
+    );
+    let order = columns(&mut h);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(-0.001), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), -11 * TEST_DISPLAY_WIDTH / 2);
+    assert_eq!(window_x(&mut h, order[11]), 0);
+    assert_eq!(window_x(&mut h, order[0]), TEST_DISPLAY_WIDTH / 2);
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(0.001), Event::TouchpadUp],
+    );
+    assert_eq!(settled(&mut h), 0);
+    assert_eq!(window_x(&mut h, order[0]), 0);
 }

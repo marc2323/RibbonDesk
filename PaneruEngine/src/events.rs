@@ -73,22 +73,36 @@ pub enum Event {
     },
 
     /// An application has terminated.
-    ApplicationTerminated { psn: ProcessSerialNumber },
+    ApplicationTerminated {
+        psn: ProcessSerialNumber,
+    },
     /// The frontmost application has switched.
-    ApplicationFrontSwitched { psn: ProcessSerialNumber },
+    ApplicationFrontSwitched {
+        psn: ProcessSerialNumber,
+    },
     /// An application has become the active (frontmost) application. Carries
     /// the pid for subscribers; Paneru's own focus handling uses
     /// [`Event::ApplicationFrontSwitched`] instead.
-    ApplicationActivated { pid: i32 },
+    ApplicationActivated {
+        pid: i32,
+    },
     /// An application has stopped being the active application.
-    ApplicationDeactivated { pid: i32 },
+    ApplicationDeactivated {
+        pid: i32,
+    },
     /// An application has become visible.
-    ApplicationVisible { pid: i32 },
+    ApplicationVisible {
+        pid: i32,
+    },
     /// An application has become hidden.
-    ApplicationHidden { pid: i32 },
+    ApplicationHidden {
+        pid: i32,
+    },
 
     /// A window has been created.
-    WindowCreated { element: CFRetained<AXUIWrapper> },
+    WindowCreated {
+        element: CFRetained<AXUIWrapper>,
+    },
     /// A window has been fully spawned and populated in the window manager.
     WindowSpawned {
         window_id: WinID,
@@ -99,6 +113,15 @@ pub enum Event {
         frame: crate::types::state::Frame,
         floating: bool,
         managed: bool,
+        startup: bool,
+    },
+    /// An explicit hotkey or companion action changed Ribbon membership.
+    WindowBehaviorChanged {
+        window_id: WinID,
+        pid: Pid,
+        app_name: String,
+        bundle_id: String,
+        floating: bool,
     },
     /// A window has been destroyed. `source` records which notification
     /// reported it; see [`DestroySource`].
@@ -107,17 +130,29 @@ pub enum Event {
         source: DestroySource,
     },
     /// A window has gained focus.
-    WindowFocused { window_id: WinID },
+    WindowFocused {
+        window_id: WinID,
+    },
     /// A window has been moved.
-    WindowMoved { window_id: WinID },
+    WindowMoved {
+        window_id: WinID,
+    },
     /// A window has been resized.
-    WindowResized { window_id: WinID },
+    WindowResized {
+        window_id: WinID,
+    },
     /// A window has been minimized.
-    WindowMinimized { window_id: WinID },
+    WindowMinimized {
+        window_id: WinID,
+    },
     /// A window has been de-minimized (restored).
-    WindowDeminimized { window_id: WinID },
+    WindowDeminimized {
+        window_id: WinID,
+    },
     /// A window's title has changed.
-    WindowTitleChanged { window_id: WinID },
+    WindowTitleChanged {
+        window_id: WinID,
+    },
 
     /// A mouse down event has occurred.
     MouseDown {
@@ -141,16 +176,36 @@ pub enum Event {
     },
 
     /// A swipe gesture has been detected.
-    Swipe { delta: f64, fingers: usize },
+    Swipe {
+        delta: f64,
+        fingers: usize,
+    },
 
     /// A vertical trackpad gesture (accumulates delta to threshold before firing).
-    VerticalSwipe { delta: f64, fingers: usize },
+    VerticalSwipe {
+        delta: f64,
+        fingers: usize,
+    },
 
     /// A single scroll wheel tick for vertical workspace switching (fires immediately).
-    VerticalScrollTick { delta: f64 },
+    VerticalScrollTick {
+        delta: f64,
+    },
 
     /// A mouse scroll has been detected.
-    Scroll { delta: f64 },
+    Scroll {
+        delta: f64,
+    },
+
+    /// Horizontal overview camera travel in viewport widths; never moves native windows.
+    OverviewPan {
+        delta: f64,
+    },
+    /// Raw overview contact boundaries, separate from native wheel momentum.
+    OverviewPanBegin,
+    OverviewPanEnd {
+        cancelled: bool,
+    },
 
     /// Fingers have been placed on the touchpad.
     TouchpadDown,
@@ -158,22 +213,36 @@ pub enum Event {
     TouchpadUp,
 
     /// A new space (virtual desktop) has been created.
-    SpaceCreated { space_id: WorkspaceId },
+    SpaceCreated {
+        space_id: WorkspaceId,
+    },
     /// A space has been destroyed.
-    SpaceDestroyed { space_id: WorkspaceId },
+    SpaceDestroyed {
+        space_id: WorkspaceId,
+    },
     /// The active space has changed.
     SpaceChanged,
 
     /// A new display has been added.
-    DisplayAdded { display_id: CGDirectDisplayID },
+    DisplayAdded {
+        display_id: CGDirectDisplayID,
+    },
     /// A display has been removed.
-    DisplayRemoved { display_id: CGDirectDisplayID },
+    DisplayRemoved {
+        display_id: CGDirectDisplayID,
+    },
     /// A display has been moved.
-    DisplayMoved { display_id: CGDirectDisplayID },
+    DisplayMoved {
+        display_id: CGDirectDisplayID,
+    },
     /// A display has been resized.
-    DisplayResized { display_id: CGDirectDisplayID },
+    DisplayResized {
+        display_id: CGDirectDisplayID,
+    },
     /// A display's configuration has changed.
-    DisplayConfigured { display_id: CGDirectDisplayID },
+    DisplayConfigured {
+        display_id: CGDirectDisplayID,
+    },
     /// The overall display arrangement has changed.
     DisplayChanged,
 
@@ -187,24 +256,38 @@ pub enum Event {
     MissionControlExit,
 
     /// Dock preferences have changed.
-    DockDidChangePref { msg: String },
+    DockDidChangePref {
+        msg: String,
+    },
     /// The Dock has restarted.
-    DockDidRestart { msg: String },
+    DockDidRestart {
+        msg: String,
+    },
 
     /// A menu has been opened.
-    MenuOpened { window_id: WinID },
+    MenuOpened {
+        window_id: WinID,
+    },
     /// A menu has been closed.
-    MenuClosed { window_id: WinID },
+    MenuClosed {
+        window_id: WinID,
+    },
     /// The visibility of the menu bar has changed.
-    MenuBarHiddenChanged { msg: String },
+    MenuBarHiddenChanged {
+        msg: String,
+    },
     /// The system has woken from sleep.
-    SystemWoke { msg: String },
+    SystemWoke {
+        msg: String,
+    },
 
     /// The system appearance (Light/Dark mode) has changed.
     ThemeChanged,
 
     /// A command has been issued to the window manager.
-    Command { command: Command },
+    Command {
+        command: Command,
+    },
 
     /// A structured state query has been issued by a client.
     StateQuery {
@@ -214,12 +297,15 @@ pub enum Event {
 
     /// A client has asked for the window set: the same layout value a
     /// `paneru.windows` handler is given inside the daemon.
-    WindowSetQuery { respond_to: Reply },
+    WindowSetQuery {
+        respond_to: Reply,
+    },
 
     /// A client has subscribed to state events. Carries the channel they are
     /// pushed to, which outlives the request that delivered it.
     StateSubscribe {
         subscriber: Arc<crate::types::wire::Subscriber>,
+        behavior_only: bool,
     },
 
     /// A client has read or written the script state store. Answered

@@ -3967,3 +3967,125 @@ fn test_virtual_move_number_recreates_missing_baseline_row() {
         "the moved window should land on a single recreated row 0"
     );
 }
+
+#[test]
+fn new_windows_float_until_explicitly_added_to_ribbon() {
+    let config = Config::try_from("[options]\ndefault_floating = true\n[windows.default]\ntitle = '.*'\nhorizontal_padding = 3\n").unwrap();
+    let command = |window, pid, managed| Event::Command {
+        command: Command::Window(Operation::SetManaged {
+            window,
+            pid,
+            managed,
+        }),
+    };
+    TestHarness::new()
+        .with_config(config)
+        .with_windows(2)
+        .on_iteration(0, |world, _| {
+            for id in 0..2 {
+                let entity = find_window_entity(id, world);
+                assert!(matches!(
+                    world.get::<Unmanaged>(entity),
+                    Some(Unmanaged::Floating)
+                ));
+                assert_window_size!(world, id, TEST_WINDOW_WIDTH, TEST_WINDOW_HEIGHT);
+            }
+        })
+        .on_iteration(1, |world, state| {
+            let target = find_window_entity(1, world);
+            let other = find_window_entity(0, world);
+            assert!(world.get::<Unmanaged>(target).is_none());
+            assert!(world.get::<Unmanaged>(other).is_some());
+            assert!(state.padding_requests().contains(&(1, true, 3)));
+            let mut query = world.query_filtered::<&LayoutStrip, With<ActiveWorkspaceMarker>>();
+            assert!(query.single(world).unwrap().contains(target));
+        })
+        .on_iteration(2, |world, _| {
+            let target = find_window_entity(1, world);
+            assert!(
+                world.get::<Unmanaged>(target).is_none(),
+                "add is idempotent"
+            );
+        })
+        .on_iteration(3, |world, _| {
+            let target = find_window_entity(1, world);
+            assert!(
+                world.get::<Unmanaged>(target).is_none(),
+                "stale owner PID must not affect a window"
+            );
+        })
+        .on_iteration(4, |world, _| {
+            let target = find_window_entity(1, world);
+            assert!(matches!(
+                world.get::<Unmanaged>(target),
+                Some(Unmanaged::Floating)
+            ));
+        })
+        .run(vec![
+            Event::MenuOpened { window_id: 0 },
+            command(1, TEST_PROCESS_ID, true),
+            command(1, TEST_PROCESS_ID, true),
+            command(1, TEST_PROCESS_ID + 1, false),
+            command(1, TEST_PROCESS_ID, false),
+            command(9999, TEST_PROCESS_ID, true),
+        ]);
+}
+
+#[test]
+fn explicit_app_rule_overrides_default_floating() {
+    let options = MainOptions {
+        default_floating: Some(true),
+        ..MainOptions::default()
+    };
+    let mut rule = WindowParams::new(".*", Some("test".into()));
+    rule.floating = Some(false);
+    TestHarness::new()
+        .with_config(Config::from((options, vec![rule])))
+        .with_windows(1)
+        .on_iteration(0, |world, _| {
+            let entity = find_window_entity(0, world);
+            assert!(world.get::<Unmanaged>(entity).is_none());
+        })
+        .run(vec![Event::MenuOpened { window_id: 0 }]);
+}
+
+#[test]
+fn ribbon_command_rejects_nonstandard_and_other_space_windows() {
+    TestHarness::new()
+        .with_display(
+            TEST_DISPLAY_ID,
+            IRect::new(0, 0, TEST_DISPLAY_WIDTH, TEST_DISPLAY_HEIGHT),
+            vec![TEST_WORKSPACE_ID, TEST_WORKSPACE_ID + 1],
+        )
+        .with_config(Config::try_from("[options]\ndefault_floating = true\n").unwrap())
+        .with_window(0, |window| {
+            window.subrole = "AXDialog".into();
+        })
+        .with_workspace_window(1, TEST_WORKSPACE_ID + 1, |_| {})
+        .on_iteration(2, |world, _| {
+            for id in 0..2 {
+                let entity = find_window_entity(id, world);
+                assert!(matches!(
+                    world.get::<Unmanaged>(entity),
+                    Some(Unmanaged::Floating)
+                ));
+            }
+        })
+        .run(vec![
+            Event::MenuOpened { window_id: 0 },
+            Event::Command {
+                command: Command::Window(Operation::SetManaged {
+                    window: 0,
+                    pid: TEST_PROCESS_ID,
+                    managed: true,
+                }),
+            },
+            Event::Command {
+                command: Command::Window(Operation::SetManaged {
+                    window: 1,
+                    pid: TEST_PROCESS_ID,
+                    managed: true,
+                }),
+            },
+        ]);
+}

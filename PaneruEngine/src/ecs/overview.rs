@@ -40,9 +40,12 @@ pub(crate) fn register(app: &mut App) {
         .add_observer(request_window_action)
         .add_systems(
             PreUpdate,
-            handle_commands
+            (
+                handle_commands.before(crate::commands::query::state_query_handler),
+                forward_pan,
+            )
+                .chain()
                 .after(super::systems::pump_events)
-                .before(crate::commands::query::state_query_handler)
                 .run_if(on_message::<Event>),
         )
         .add_systems(
@@ -96,11 +99,15 @@ fn notify(name: &str) {
 }
 
 fn notify_ready(id: i32) {
+    notify_value("local.paneru.overview.ready", &id.to_string());
+}
+
+fn notify_value(name: &str, value: &str) {
     #[cfg(not(test))]
     {
         use objc2_foundation::{NSDistributedNotificationCenter, NSString};
-        let name = NSString::from_str("local.paneru.overview.ready");
-        let object = NSString::from_str(&id.to_string());
+        let name = NSString::from_str(name);
+        let object = NSString::from_str(value);
         unsafe {
             NSDistributedNotificationCenter::defaultCenter()
                 .postNotificationName_object_userInfo_deliverImmediately(
@@ -112,7 +119,7 @@ fn notify_ready(id: i32) {
         }
     }
     #[cfg(test)]
-    let _ = id;
+    let _ = (name, value);
 }
 
 #[allow(clippy::type_complexity)]
@@ -316,6 +323,48 @@ fn handle_commands(
     }
 }
 
+/// Forward one camera delta per event batch, retaining native input ownership.
+fn forward_pan(
+    mut events: MessageReader<Event>,
+    state: Res<OverviewActive>,
+    _main_thread: Option<NonSend<crate::overlay::OverlayManager>>,
+) {
+    if !state.0 {
+        events.clear();
+        return;
+    }
+    forward_pan_updates(events.read(), |value| {
+        notify_value("local.paneru.overview.pan", value);
+    });
+}
+
+/// Coalesce movement while preserving down/move/up ordering within a batch.
+fn forward_pan_updates<'a>(events: impl Iterator<Item = &'a Event>, mut send: impl FnMut(&str)) {
+    let mut pan = 0.0;
+    for event in events {
+        match event {
+            Event::OverviewPan { delta } if delta.is_finite() => pan += delta,
+            Event::OverviewPanBegin | Event::OverviewPanEnd { .. } => {
+                flush_pan(&mut pan, &mut send);
+                send(match event {
+                    Event::OverviewPanBegin => "begin",
+                    Event::OverviewPanEnd { cancelled: true } => "cancel",
+                    _ => "end",
+                });
+            }
+            _ => {}
+        }
+    }
+    flush_pan(&mut pan, &mut send);
+}
+
+fn flush_pan(pan: &mut f64, send: &mut impl FnMut(&str)) {
+    if pan.is_finite() && *pan != 0.0 {
+        send(&pan.to_string());
+    }
+    *pan = 0.0;
+}
+
 #[instrument(level = Level::DEBUG, skip_all)]
 fn request_window_action(
     request: On<RequestWindowAction>,
@@ -347,4 +396,44 @@ fn request_window_action(
     }
     // Native destroy/quit notifications own removal. Leave windows and
     // input ownership intact when an app needs to show save/cancel UI.
+}
+
+#[cfg(test)]
+mod pan_tests {
+    use super::*;
+
+    #[test]
+    fn contact_boundaries_preserve_the_last_delta_before_release_and_cancel() {
+        let events = [
+            Event::OverviewPanBegin,
+            Event::OverviewPan { delta: 0.25 },
+            Event::OverviewPan { delta: 0.5 },
+            Event::OverviewPanEnd { cancelled: false },
+            Event::OverviewPanBegin,
+            Event::OverviewPan { delta: -0.25 },
+            Event::OverviewPanEnd { cancelled: true },
+        ];
+        let mut updates = Vec::new();
+        forward_pan_updates(events.iter(), |value| updates.push(value.to_owned()));
+        assert_eq!(
+            updates,
+            ["begin", "0.75", "end", "begin", "-0.25", "cancel"]
+        );
+    }
+
+    #[test]
+    fn invalid_and_zero_deltas_cannot_start_a_coast() {
+        let events = [
+            Event::OverviewPanBegin,
+            Event::OverviewPan { delta: f64::NAN },
+            Event::OverviewPan {
+                delta: f64::INFINITY,
+            },
+            Event::OverviewPan { delta: 0.0 },
+            Event::OverviewPanEnd { cancelled: false },
+        ];
+        let mut updates = Vec::new();
+        forward_pan_updates(events.iter(), |value| updates.push(value.to_owned()));
+        assert_eq!(updates, ["begin", "end"]);
+    }
 }

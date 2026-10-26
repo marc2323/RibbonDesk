@@ -207,6 +207,51 @@ fn overview_suspends_scroll_input_and_closes_on_desktop_change() {
 }
 
 #[test]
+fn overview_camera_pan_never_moves_or_reorders_native_windows() {
+    TestHarness::new()
+        .with_windows(4)
+        .on_iteration(2, |world, _| {
+            assert!(world.resource::<OverviewActive>().0);
+            assert!(world.query::<&Scrolling>().iter(world).next().is_none());
+            assert_eq!(order(world), vec![0, 1, 2, 3]);
+            assert_focused!(world, 0);
+        })
+        .on_iteration(4, |world, _| {
+            assert!(!world.resource::<OverviewActive>().0);
+            assert!(world.query::<&Scrolling>().iter(world).next().is_none());
+            assert_eq!(order(world), vec![0, 1, 2, 3]);
+            assert_focused!(world, 0);
+        })
+        .run(vec![
+            Event::MenuOpened { window_id: 0 },
+            overview(OverviewCommand::Begin(1)),
+            Event::OverviewPan { delta: 1.5 },
+            overview(OverviewCommand::End),
+            Event::OverviewPan { delta: -2.5 },
+        ]);
+}
+
+#[test]
+fn overview_contact_and_release_keep_momentum_out_of_the_native_strip() {
+    TestHarness::new()
+        .with_windows(4)
+        .on_iteration(4, |world, _| {
+            assert!(world.resource::<OverviewActive>().0);
+            assert!(world.query::<&Scrolling>().iter(world).next().is_none());
+            assert_eq!(order(world), vec![0, 1, 2, 3]);
+            assert_focused!(world, 0);
+        })
+        .run(vec![
+            Event::MenuOpened { window_id: 0 },
+            overview(OverviewCommand::Begin(1)),
+            Event::OverviewPanBegin,
+            Event::OverviewPan { delta: 0.1 },
+            Event::OverviewPanEnd { cancelled: false },
+            overview(OverviewCommand::End),
+        ]);
+}
+
+#[test]
 fn overview_moves_stacked_columns_without_splitting_them() {
     TestHarness::new()
         .with_windows(4)

@@ -52,11 +52,22 @@ lua52 = ["mlua/lua52"]
 lua53 = ["mlua/lua53"]
 lua54 = ["mlua/lua54"]
 
+# Keep useful backtraces without large variable/type debug data or incremental
+# caches. Normal compiled dependencies still remain reusable between builds.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.test]
+debug = "line-tables-only"
+incremental = false
+
 [profile.fast-release]
 inherits = "release"
 codegen-units = 256
 lto = false
-debug = true
+debug = "line-tables-only"
+incremental = false
 
 [profile.release]
 codegen-units = 1

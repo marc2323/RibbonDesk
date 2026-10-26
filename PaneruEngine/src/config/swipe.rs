@@ -47,6 +47,9 @@ pub struct SwipeOptions {
     /// Overrides free-scroll tuning for those gestures only. Default: false.
     pub three_finger_paging: Option<bool>,
 
+    /// Join the ribbon ends for horizontal scrolling and paging. Default: false.
+    pub infinite_ribbon: Option<bool>,
+
     /// Three-finger upward swipe opens the native companion overview.
     pub ribbon_overview: Option<bool>,
 

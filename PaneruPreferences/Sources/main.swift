@@ -139,6 +139,7 @@ enum Engine {
                 try start()
                 try normalizeActiveWorkspace()
             } else if preferences.scrollTuning != previous.scrollTuning
+                        || preferences.infiniteRibbon != previous.infiniteRibbon
                         || preferences.focusMode != previous.focusMode
                         || preferences.borderEnabled != previous.borderEnabled || preferences.borderColor != previous.borderColor {
                 try PreferenceFiles.reload()
@@ -166,6 +167,7 @@ final class SettingsModel: ObservableObject {
     @Published var snapBack: Bool { didSet { preferenceChanged() } }
     @Published var snapExitDistance: Double { didSet { preferenceChanged() } }
     @Published var threeFingerPaging: Bool { didSet { preferenceChanged() } }
+    @Published var infiniteRibbon: Bool { didSet { preferenceChanged() } }
     @Published var overviewAnimation: Bool { didSet { preferenceChanged() } }
     @Published var gap: Double { didSet { preferenceChanged() } }
     @Published var focusMode: FocusMode { didSet { preferenceChanged() } }
@@ -177,11 +179,13 @@ final class SettingsModel: ObservableObject {
     @Published var desktopSuspended = false
     @Published var loginApprovalRequired = LoginItem.requiresApproval
     @Published var accessibilityGranted = ActivationClickGuard.isAuthorized
-    @Published var engineRunning = false
+    @Published var engineRunning = false { didSet { engineRunningChanged?() } }
+    var engineRunningChanged: (() -> Void)?
     @Published var engineBusy = false { didSet { engineActivityChanged?(engineBusy) } }
     var engineActivityChanged: ((Bool) -> Void)?
     var toggleEngineAction: (() -> Void)?
     var overviewAction: (() -> Void)?
+    var appBehaviorAction: (() -> Void)?
     var restartEngineAction: (() -> Void)?
     var quitAction: (() -> Void)?
     @Published var applying = false
@@ -254,6 +258,7 @@ final class SettingsModel: ObservableObject {
         snapBack = preferences.snapBack
         snapExitDistance = preferences.snapExitDistance
         threeFingerPaging = preferences.threeFingerPaging
+        infiniteRibbon = preferences.infiniteRibbon
         overviewAnimation = preferences.overviewAnimation
         gap = Double(preferences.gap)
         focusMode = preferences.focusMode
@@ -286,7 +291,8 @@ final class SettingsModel: ObservableObject {
                     snapAnimation: (snapAnimation * 100).rounded() / 100,
                     snapFullWidth: snapFullWidth, snapHalfWidth: snapHalfWidth, snapBack: snapBack,
                     snapExitDistance: (snapExitDistance * 100).rounded() / 100,
-                    threeFingerPaging: threeFingerPaging, overviewAnimation: overviewAnimation).validated
+                    threeFingerPaging: threeFingerPaging, overviewAnimation: overviewAnimation,
+                    infiniteRibbon: infiniteRibbon).validated
     }
 
     var borderColor: Color {
@@ -348,6 +354,7 @@ final class SettingsModel: ObservableObject {
         snapBack = value.snapBack
         snapExitDistance = value.snapExitDistance
         threeFingerPaging = value.threeFingerPaging
+        infiniteRibbon = value.infiniteRibbon
         overviewAnimation = value.overviewAnimation
         gap = Double(value.gap)
         focusMode = value.focusMode
@@ -484,6 +491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
     private let model = SettingsModel()
     private lazy var desktops = DesktopSpaceController(model: model)
     private let overview = RibbonOverviewController()
+    private let appBehavior = AppBehaviorController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -494,6 +502,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         overview.willShow = { [weak self] in self?.popover.performClose(nil) }
         overview.animateTransitions = { [weak self] in self?.model.overviewAnimation ?? false }
+        overview.infiniteRibbon = { [weak self] in self?.model.infiniteRibbon ?? false }
+        appBehavior.canPrompt = { [weak self] in
+            guard let self else { return false }
+            return self.model.engineRunning && !self.model.engineBusy && !self.model.applying
+                && !self.overview.isVisible && !self.popover.isShown
+                && !DesktopSpaces.read().isSuspended(disabled: self.model.disabledSpaceUUIDs)
+        }
         let controller = NSHostingController(rootView: SettingsView(model: model)
             .onExitCommand { [weak self] in self?.popover.performClose(nil) })
         controller.sizingOptions = [.preferredContentSize]
@@ -514,12 +529,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         }
         model.engineActivityChanged = { [weak self] busy in
             guard let self else { return }
+            self.appBehavior.sync(running: self.model.engineRunning && !busy)
             if busy, self.popover.isShown { self.popover.behavior = .applicationDefined }
             else if !busy { self.restorePopoverAfterOperation() }
+        }
+        model.engineRunningChanged = { [weak self] in
+            guard let self else { return }
+            self.appBehavior.sync(running: self.model.engineRunning && !self.model.engineBusy)
         }
         model.toggleEngineAction = { [weak self] in self?.overview.close(); self?.desktops.setRequested(!(self?.model.engineRunning ?? false)) }
         model.restartEngineAction = { [weak self] in self?.overview.close(); self?.desktops.restart() }
         model.overviewAction = { [weak self] in self?.overview.show() }
+        model.appBehaviorAction = { [weak self] in self?.openAppBehavior() }
         model.quitAction = { [weak self] in self?.quitAll() }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = Icon.menu
@@ -530,6 +551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         contextMenu.delegate = self
         contextMenu.autoenablesItems = false
+        contextMenu.addItem(menuItem("App Behavior…", action: #selector(openAppBehavior)))
         contextMenu.addItem(menuItem("Quit RibbonDesk", action: #selector(quitAll)))
         if !CommandLine.arguments.contains("--background") && !LoginItem.launchedAtLogin { openSettings() }
         desktops.start()
@@ -600,7 +622,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSPopo
         return false
     }
 
-    func applicationWillTerminate(_ notification: Notification) { overview.close(restoreFocus: false) }
+    @objc private func openAppBehavior() {
+        popover.performClose(nil)
+        overview.close()
+        appBehavior.showSettings()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        overview.close(restoreFocus: false)
+        appBehavior.stop()
+    }
 
     @objc private func quitAll() {
         guard !model.applying && !model.engineBusy else { return }

@@ -54,7 +54,7 @@ class InstallTests(unittest.TestCase):
         for name in ["RibbonDesk.app", "Paneru Settings.app"]:
             self.old_app(name)
         saved = {name: f"saved {name}\n".encode() for name in
-                 ["init.lua", "preferences.json", "preferences.lua", "scroll-presets.json"]}
+                 ["init.lua", "preferences.json", "preferences.lua", "scroll-presets.json", "app-behavior.json", "app-behavior.lua"]}
         for name, data in saved.items():
             (self.config / name).write_bytes(data)
         self.assert_installed(self.install())

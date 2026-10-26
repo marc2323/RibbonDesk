@@ -83,11 +83,15 @@ pub async fn script_state(request: ScriptStateRequest) -> Result<String> {
 /// # Errors
 ///
 /// If the daemon cannot be reached.
-pub async fn subscribe() -> Result<()> {
+pub async fn subscribe(behavior_only: bool) -> Result<()> {
     use std::io::Write;
 
     let events = connect()?
-        .subscribe::<StateEvent>(&Request::Subscribe)
+        .subscribe::<StateEvent>(&if behavior_only {
+            Request::SubscribeWindowBehavior
+        } else {
+            Request::Subscribe
+        })
         .await?;
     let mut events = std::pin::pin!(events);
 
@@ -134,7 +138,7 @@ pub fn run(command: ClientCommand) -> Result<()> {
                 println!("{}", script_state(request).await?);
                 Ok(())
             }
-            ClientCommand::Subscribe => subscribe().await,
+            ClientCommand::Subscribe(behavior_only) => subscribe(behavior_only).await,
         }
     })
 }
@@ -146,7 +150,7 @@ pub enum ClientCommand {
     Send(Vec<String>),
     Query(StateQueryKind),
     ScriptState(ScriptStateRequest),
-    Subscribe,
+    Subscribe(bool),
 }
 
 /// Renders a query answer as the JSON its kind has always produced.

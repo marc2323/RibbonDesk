@@ -73,7 +73,7 @@ trap ribbon_rollback EXIT
 /usr/bin/codesign --verify --deep --strict "$ribbon_stage/RibbonDesk.app"
 /bin/cp "$ribbon_lua" "$ribbon_stage/init.lua"
 ribbon_backup=$(/usr/bin/mktemp -d "$ribbon_config/backups/ribbondesk-install.XXXXXX")
-for ribbon_file in init.lua preferences.json preferences.lua scroll-presets.json; do
+for ribbon_file in init.lua preferences.json preferences.lua scroll-presets.json app-behavior.json app-behavior.lua; do
     [[ ! -e "$ribbon_config/$ribbon_file" ]] || /bin/cp -p "$ribbon_config/$ribbon_file" "$ribbon_backup/$ribbon_file"
 done
 # A .backup suffix keeps Launch Services from discovering another launchable app.

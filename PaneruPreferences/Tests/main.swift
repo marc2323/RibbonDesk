@@ -86,6 +86,17 @@ assert(BorderColor.hex(red: -.infinity, green: 3, blue: -.nan) == "#00FF00")
 assert(Preferences.defaults.borderEnabled && Preferences.defaults.borderColor == "#33879E")
 print("Outline preferences: migration, persistence, Lua output, defaults, and invalid colors passed.")
 
+assert(!legacy.infiniteRibbon && !Preferences.defaults.infiniteRibbon)
+var looped = custom
+looped.infiniteRibbon = true
+let loopedRoundTrip = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(looped))
+assert(loopedRoundTrip.validated.infiniteRibbon)
+assert(looped.luaSource(disabledSpaceIDs: []).contains("infinite_ribbon = true"))
+assert(custom.luaSource(disabledSpaceIDs: []).contains("infinite_ribbon = false"))
+looped.scrollTuning = Preferences.defaults.scrollTuning
+assert(looped.infiniteRibbon, "feel presets preserve the ribbon's loop setting")
+print("Infinite ribbon: legacy default, saved toggle, validation, Lua export and preset isolation passed.")
+
 // Compile with Sources/PrivateLogs.swift as well. These checks touch only a
 // fresh temporary directory, never the user's installed LaunchAgent or logs.
 import Darwin

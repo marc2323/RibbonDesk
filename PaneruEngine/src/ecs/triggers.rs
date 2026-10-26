@@ -4,7 +4,7 @@ use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::lifecycle::{Add, Remove, RemovedComponents};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Added, Has, With, Without};
+use bevy::ecs::query::{Added, Has, Or, With, Without};
 use bevy::ecs::system::{Commands, NonSendMut, ParamSet, Populated, Query, Res, ResMut, Single};
 use bevy::math::IRect;
 use notify::event::{DataChange, MetadataKind, ModifyKind};
@@ -15,8 +15,8 @@ use tracing::{Level, debug, error, info, instrument, trace, warn};
 
 use super::{
     ActiveDisplayMarker, BProcess, FocusedMarker, FreshMarker, MissionControlActive,
-    PreviousManagedStrip, RetryFrontSwitch, SpawnWindowTrigger, StrayFocusEvent, SystemTheme,
-    Timeout, Unmanaged,
+    PreviousManagedStrip, RetryFrontSwitch, RibbonPaddingNeeded, SpawnWindowTrigger,
+    StrayFocusEvent, SystemTheme, Timeout, Unmanaged,
 };
 use crate::config::Config;
 use crate::ecs::focus::FocusHistory;
@@ -50,8 +50,10 @@ type AddedWindowDefaults<'w, 's> = Populated<
         &'static mut Bounds,
         &'static mut WidthRatio,
         &'static ChildOf,
+        Entity,
+        Has<RibbonPaddingNeeded>,
     ),
-    Added<Window>,
+    Or<(Added<Window>, With<RibbonPaddingNeeded>)>,
 >;
 
 type WindowDefaultsQueries<'w, 's> = ParamSet<
@@ -818,6 +820,12 @@ pub(super) fn window_managed_trigger(
     {
         let properties = WindowProperties::new(app, window, &ctx.config);
 
+        if window.horizontal_padding() != properties.horizontal_padding().clamp(0, 50)
+            || window.vertical_padding() != properties.vertical_padding().clamp(0, 50)
+        {
+            ctx.commands.entity(entity).try_insert(RibbonPaddingNeeded);
+        }
+
         // Re-managing an existing window (e.g. after un-floating it) retains
         // its width under the dynamic rule. Fixed rules keep their old behavior.
         if let Some(width_ratio) = properties.fixed_width_ratio() {
@@ -1162,6 +1170,7 @@ pub(super) fn spawn_window_trigger(
             frame: window_frame,
             floating: false,
             managed: true,
+            startup: initializing.is_some() || restore.is_some(),
         }));
     }
 
@@ -1176,9 +1185,22 @@ pub(super) fn apply_window_defaults(
     active_display: ActiveDisplay,
     config: Res<Config>,
     initializing: Option<Res<Initializing>>,
+    mut commands: Commands,
 ) {
     let focused_ratio = windows.p1().single().ok().map(|ratio| ratio.0);
-    for (ref mut window, mut position, mut bounds, mut width_ratio, child) in windows.p0() {
+    for (
+        ref mut window,
+        mut position,
+        mut bounds,
+        mut width_ratio,
+        child,
+        entity,
+        entering_ribbon,
+    ) in windows.p0()
+    {
+        if entering_ribbon {
+            commands.entity(entity).try_remove::<RibbonPaddingNeeded>();
+        }
         let Ok((_, app)) = apps.get(child.parent()) else {
             continue;
         };
@@ -1189,7 +1211,7 @@ pub(super) fn apply_window_defaults(
         let initializing = initializing.is_some();
 
         // Do not add padding to floating windows.
-        if properties.floating() {
+        if properties.floating() && !entering_ribbon {
             // Skip grid_ratios during init: we don't know this window's display.
             if !initializing && let Some((rx, ry, rw, rh)) = properties.grid_ratios() {
                 let bounds = active_display.actual_bounds(&config);
@@ -1211,6 +1233,10 @@ pub(super) fn apply_window_defaults(
             position.0 = frame.min;
             bounds.bypass_change_detection().0 = frame.size();
             width_ratio.0 = f64::from(frame.width()) / display_width;
+        }
+
+        if entering_ribbon {
+            continue;
         }
 
         // Apply configured width AFTER update_frame so it isn't overwritten.
@@ -1266,6 +1292,9 @@ pub(super) fn apply_window_positions(
             restoration.as_deref(),
             &ctx.config,
         ) {
+            // A restored Ribbon window needs its gaps even when its app's
+            // new-window policy is floating. Keep its restored width intact.
+            ctx.commands.entity(entity).try_insert(RibbonPaddingNeeded);
             continue;
         }
 

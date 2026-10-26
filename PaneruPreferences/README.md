@@ -5,7 +5,7 @@ For downloads and installation, see the [main README](../README.md#install).
 
 Open Settings by clicking the three-window menu-bar icon or pressing
 **Control–Option–S**. Click outside or click the icon again to dismiss it.
-Right-clicking the icon shows Quit.
+Right-clicking the icon shows App Behavior and Quit.
 
 Settings apply and save automatically, including sliders while you drag them.
 You can keep editing while an update finishes. The footer reports progress or
@@ -40,6 +40,33 @@ registration for both components; the engine has no separate login registration.
 
 ## Window management
 
+New windows start floating at their normal size and position. Focus a window
+and press **Control–Option–T** to add it to the Ribbon; press it again to float
+it. Existing saved sessions restore their arrangement.
+
+Open **App Behavior…** from Settings or the icon's right-click menu to choose
+how each app's future windows open:
+
+| App choice | Behavior |
+| --- | --- |
+| **Use global default** | Float, with a prompt if global prompts are enabled. |
+| **Automatically join Ribbon** | New windows join automatically. |
+| **Always start floating** | New windows float without a prompt. The hotkey can still add one. |
+| **Ask each time** | New windows float while a small prompt offers Add to Ribbon or Keep Floating. |
+
+Prompts are off by default. **Remember for this app** in a prompt saves that
+choice for future windows; ordinary hotkey toggles affect only the current
+window. Rules use stable app bundle identifiers. Apps appear as their windows
+are discovered, and **Add App…** lets you select an app that isn't running.
+Search matches names and bundle identifiers. App choices apply on enabled
+Desktops; standard dialogs and RibbonDesk's own controls keep normal behavior.
+
+The local activity log retains the latest 200 window decisions and preference
+changes. **Clear Log** clears history while retaining app choices;
+**Reset App Preferences** returns apps to floating with prompts off. App Behavior
+has its own reset, separate from the main Settings reset. Its catalog and engine
+export are stored in `~/.config/paneru/app-behavior.json` and `app-behavior.lua`.
+
 | Control | What it does |
 | --- | --- |
 | **Pause / Start** | Stop or resume window management. |
@@ -50,7 +77,19 @@ registration for both components; the engine has no separate login registration.
 
 Overview controls are listed in the [main README](../README.md#ribbon-overview).
 The view uses one-third scale; unusually short displays can impose a smaller
-scale to fit the ribbon’s height. Scroll to reach offscreen previews.
+scale to fit the ribbon’s height. Browse with two- or three-finger horizontal
+scrolling, the mouse wheel, or the bottom track. Both finger counts use free
+panning in Overview, independently of the normal ribbon's three-finger paging.
+With **Infinite ribbon** on, previews continue from the last window to the first
+in either direction. The same toggle controls both views.
+
+Three-finger panning follows your fingers and coasts smoothly when released;
+a new touch, wheel input, navigation, or exit stops the coast. Pausing before
+lifting deliberately stops it. Two-finger scrolling keeps macOS momentum.
+Overview opens with the starting window centered, including the first and last
+windows in a bounded ribbon. A small light-blue arrow points down at its top
+middle edge throughout the session, independently of hover selection. Only one
+visible copy is marked on a repeating ribbon. Closing that window removes its marker.
 
 When rearranging, repeated J/K steps keep the selected window visible. Dragging
 onto the left/right half of a preview inserts before/after it; holding a drag
@@ -61,6 +100,14 @@ to save or cancel, and overview reveals its confirmation. Quit affects the app�
 other windows too.
 
 ## Scrolling
+
+Turn on **Infinite ribbon** to join both ends: scrolling right past the last
+window brings back the first, and scrolling left past the first brings back the
+last. It works in Overview, with three-finger paging and Control–Option free scrolling,
+preserves window order, and applies immediately. It is off by default and saves
+separately from feel presets. A single column retains its normal scrolling;
+short native ribbons leave room for a window to leave the screen before it returns.
+Overview can repeat previews across a short ribbon while sharing their cached images.
 
 **Three-finger paging** is enabled by default. Each horizontal three-finger swipe
 advances exactly one window alignment, follows your fingers, and finishes when
@@ -112,8 +159,8 @@ Enter a name and choose **Save Current** to store scrolling and snapping togethe
 including the paging toggle. Reuse a name to update it. Choose a saved preset and
 **Load** to restore it, or use the trash button to delete it.
 
-Presets exclude Desktop policy, login registration, activation, appearance, and
-overview animation. Older presets retain their original free-scrolling mode.
+Presets exclude Desktop policy, login registration, activation, appearance,
+infinite ribbon, and overview animation. Older presets retain their original free-scrolling mode.
 
 ## Permissions and troubleshooting
 

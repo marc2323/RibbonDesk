@@ -61,11 +61,53 @@ precondition(last.contains(999) && !last.contains(0), "Scrolling can reach the l
 precondition(overview.clamped(-100) == 0 && overview.clamped(1e20) == overview.maxOffset)
 let shortCamera = RibbonCamera(windows: Array(longRibbon.prefix(2)))
 let shortOverview = shortCamera.overview(width: 1440, height: 900)
-precondition(shortOverview.maxOffset == 0 && shortOverview.scale == 1.0 / 3.0)
-precondition(shortOverview.x > 0, "Center a short ribbon")
+precondition(abs(shortOverview.maxOffset - 604.0 / 3.0) < 0.001 && shortOverview.scale == 1.0 / 3.0)
+precondition(shortOverview.x > 0, "End padding lets either window in a short ribbon reach center")
 let shortDisplay = longCamera.overview(width: 1440, height: 250)
 precondition(shortDisplay.scale < 1.0 / 3.0 && shortDisplay.scale * 800 <= 154, "Height still fits on short displays")
 print("Scrollable overview: one-third scale, initial viewport, culling, endpoints, clamping, short ribbons and short displays passed")
+
+let circular = longCamera.overview(width: 1440, height: 900, infinite: true)
+let period = circular.scrollExtent
+precondition(circular.loopPeriod == 604_000, "The seam retains the ordinary four-point gap")
+precondition(abs(circular.resolvedOffset(-100) - (period - 100)) < 0.001)
+precondition(abs(circular.resolvedOffset(period * 25 + 100) - 100) < 0.001)
+precondition(circular.resolvedOffset(.infinity) == 0)
+let seamOffset = period - 200
+let seamX = circular.x - circular.resolvedOffset(seamOffset)
+let seamCopies = longCamera.instances(scale: circular.scale, x: seamX, width: 1440, period: circular.loopPeriod, margin: 0)
+precondition(seamCopies.contains { $0.id.windowID == 999 } && seamCopies.contains { $0.id.windowID == 0 },
+             "The last and first previews share one continuous viewport")
+precondition(seamCopies.count < 12, "A thousand-window ribbon still renders only nearby copies")
+precondition(Set(seamCopies.map(\.id)).count == seamCopies.count)
+for copy in seamCopies {
+    let x = min(1439, max(0, (copy.frame.x + copy.frame.width / 2) * circular.scale + seamX))
+    let y = (copy.frame.y + copy.frame.height / 2) * circular.scale + circular.y
+    precondition(longCamera.windowAt(x: x, y: y, width: 1440, height: 900, offset: seamOffset, infinite: true) == copy.id.windowID,
+                 "Hit testing resolves the original window through every visible lap")
+}
+let firstCopy = seamCopies.first { $0.id.windowID == 0 }!
+let firstX = (firstCopy.frame.x + firstCopy.frame.width / 2) * circular.scale + seamX
+let shift = longCamera.sceneShift(id: 0, overview: circular, offset: seamOffset, width: 1440, preferredX: firstX)
+precondition(shift == circular.loopPeriod, "Entry animation follows the chosen copy")
+precondition(firstCopy.frame.x - shift == longCamera.placements[0].frame.x)
+let shortLoop = shortCamera.overview(width: 1440, height: 900, infinite: true)
+let repeated = shortCamera.instances(scale: shortLoop.scale, x: shortLoop.x, width: 1440, period: shortLoop.loopPeriod, margin: 0)
+precondition(repeated.count > 2 && repeated.count < 16, "Short ribbons fill the viewport with bounded preview copies")
+precondition(Set(repeated.map { $0.id.windowID }) == [0, 1], "Copies share the existing preview cache")
+let singleCamera = RibbonCamera(windows: Array(longRibbon.prefix(1)))
+precondition(singleCamera.overview(width: 1440, height: 900, infinite: true).loopPeriod == nil)
+precondition(RibbonCamera(windows: []).overview(width: 1440, height: 900, infinite: true).loopPeriod == nil)
+let stackLoop = camera.overview(width: 1200, height: 800, infinite: true)
+precondition(stackLoop.loopPeriod == 1500)
+let stackCopies = camera.instances(scale: stackLoop.scale, x: stackLoop.x, width: 1200, period: stackLoop.loopPeriod)
+for bottom in stackCopies.filter({ $0.id.windowID == 3 }) {
+    let top = stackCopies.first { $0.id.windowID == 2 && $0.id.lap == bottom.id.lap }!
+    precondition(top.frame.x == bottom.frame.x && bottom.frame.y == 350)
+}
+let reveal = longCamera.revealingOffset(id: 0, overview: circular, offset: seamOffset, width: 1440)
+precondition(abs(reveal - seamOffset) < 0.001, "Revealing the first window at the seam must not traverse the whole ribbon")
+print("Infinite overview: both directions, repeated laps, seam gap, exact hit testing, stacks, short ribbons, entry animation and bounded culling passed")
 
 let changes = RibbonOverviewChanges()
 precondition(!changes.consume(Data("{\"event\":\"window_title_changed\",\"title\":\"busy\"}\n{\"event\":\"window_focused\"}\n".utf8)))
@@ -155,3 +197,93 @@ let paddedSibling = RibbonWindow(window_id: 3, bundle_id: "fixture", app_name: "
 moves.append(id: 2, delta: 1)
 precondition(moves.next(windows: [logical.ribbon[0], logical.ribbon[1], paddedSibling, extra]) == .init(id: 2, target: 4, after: true),
              "Different per-window padding must not split a stack")
+
+func coastDistance(frequency: Double) -> Double {
+    var motion = RibbonOverviewMomentum()
+    precondition(motion.advance(at: 0) == nil, "Idle overview has no momentum work")
+    motion.begin(at: 100)
+    for step in 1...6 {
+        motion.move(by: 20, at: 100 + Double(step) / 60)
+        precondition(motion.advance(at: 100 + Double(step) / 60) == nil, "Never coast under stationary fingers")
+    }
+    motion.end(at: 100.11)
+    precondition(motion.coasting && !motion.touching)
+    var total = 0.0
+    for frame in 1...Int(frequency * 3) {
+        guard let delta = motion.advance(at: 100.11 + Double(frame) / frequency) else { break }
+        precondition(delta > 0 && delta < 30, "Small forward steps preserve release direction")
+        total += delta
+    }
+    precondition(!motion.coasting && motion.velocity == 0)
+    precondition(motion.advance(at: 110) == nil, "A settled coast stops scheduling frames")
+    return total
+}
+let coast60 = coastDistance(frequency: 60)
+let coast120 = coastDistance(frequency: 120)
+precondition(coast60 > 200 && coast60 < 250 && abs(coast60 - coast120) < 0.5,
+             "60/120 Hz use the same continuous decay and travel")
+var motion = RibbonOverviewMomentum()
+motion.begin(at: 1)
+motion.move(by: 20, at: 1.02)
+motion.end(at: 1.2)
+precondition(!motion.coasting, "Pausing before finger lift stops deliberately")
+motion.begin(at: 2)
+motion.move(by: 20, at: 2.02)
+motion.move(by: -20, at: 2.04)
+motion.end(at: 2.05)
+precondition((motion.advance(at: 2.07) ?? 0) < 0, "Reversal takes effect immediately")
+motion.begin(at: 3)
+precondition(!motion.coasting && motion.velocity == 0 && motion.touching, "A new contact catches an old coast")
+motion.move(by: 20, at: 3.02)
+motion.end(at: 3.03)
+let delayed = motion.advance(at: 13.03) ?? 0
+precondition(delayed > 0 && delayed < 34 && !motion.coasting, "A delayed frame decays without jumping across the ribbon")
+motion.move(by: 20, at: 14)
+motion.cancel()
+precondition(motion.advance(at: 15) == nil && !motion.touching)
+print("Overview momentum: smooth release, 60/120 Hz, pause-to-stop, reversal, new contact, cancellation, delayed frames and idle shutdown passed")
+
+precondition(snapshot.overviewOriginID == 7, "Legacy snapshots retain their focused starting window")
+var focusedDocument = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+var activeDocument = focusedDocument["active"] as! [String: Any]
+activeDocument["focused_window_id"] = 42
+focusedDocument["active"] = activeDocument
+let exactOrigin = try JSONDecoder().decode(RibbonSnapshot.self, from: JSONSerialization.data(withJSONObject: focusedDocument))
+precondition(exactOrigin.overviewOriginID == 42, "Exact native focus wins over stale per-window focus flags")
+let originCopy = shortCamera.originInstance(id: 0, instances: repeated, scale: shortLoop.scale, x: shortLoop.x, width: 1440)
+precondition(originCopy?.id.windowID == 0, "Only one visible origin copy receives the landmark")
+precondition(shortCamera.originInstance(id: 9999, instances: repeated, scale: shortLoop.scale, x: shortLoop.x, width: 1440) == nil,
+             "Closing the starting window removes its landmark without transferring it")
+precondition(shortCamera.originInstance(id: nil, instances: repeated, scale: shortLoop.scale, x: shortLoop.x, width: 1440) == nil)
+print("Overview origin: exact native focus, legacy snapshots, one landmark across repeated copies and removed-window behavior passed")
+
+func assertOriginCentered(_ camera: RibbonCamera, id: Int32, width: Double, height: Double, infinite: Bool) {
+    let overview = camera.overview(width: width, height: height, infinite: infinite)
+    let offset = camera.initialOffset(overview, viewportX: -90_000, width: width, originID: id)
+    let x = overview.x - overview.resolvedOffset(offset)
+    let copies = camera.instances(scale: overview.scale, x: x, width: width, period: overview.loopPeriod, margin: 0)
+    let origin = camera.originInstance(id: id, instances: copies, scale: overview.scale, x: x, width: width)!
+    let center = (origin.frame.x + origin.frame.width / 2) * overview.scale + x
+    precondition(abs(center - width / 2) < 0.001,
+                 "Center the starting preview exactly, including at either end and after a circular wrap")
+    let y = (origin.frame.y + origin.frame.height / 2) * overview.scale + overview.y
+    precondition(camera.windowAt(x: center, y: y, width: width, height: height, offset: offset, infinite: infinite) == id)
+}
+for infinite in [false, true] {
+    for width in [320.0, 1440, 3456] {
+        for id in [Int32(0), 500, 999] {
+            assertOriginCentered(longCamera, id: id, width: width, height: 900, infinite: infinite)
+        }
+        for id in [Int32(0), 1] {
+            assertOriginCentered(shortCamera, id: id, width: width, height: 900, infinite: infinite)
+        }
+        assertOriginCentered(singleCamera, id: 0, width: width, height: 900, infinite: infinite)
+    }
+    for id in [Int32(1), 2, 3] {
+        assertOriginCentered(camera, id: id, width: 1200, height: 800, infinite: infinite)
+    }
+    assertOriginCentered(longCamera, id: 999, width: 1440, height: 250, infinite: infinite)
+}
+precondition(longCamera.initialOffset(overview, viewportX: 604 * 500, width: 1440, originID: -1) == center,
+             "Missing origins retain the viewport fallback")
+print("Centered overview entry: first/middle/last, bounded and circular ribbons, mixed widths, stacks, single/short ribbons, display sizes and fallback passed")

@@ -113,6 +113,51 @@ type RepositionedWindows<'w, 's> = Populated<
     (Changed<LayoutPosition>, With<Window>, Without<LayoutStrip>),
 >;
 
+type LoopWindowFrames<'w, 's> = Query<'w, 's, &'static Bounds, With<Window>>;
+
+/// Choose the one physical copy of a circular column that can touch the
+/// viewport. A column changes laps only after its trailing edge has left it.
+pub(crate) fn looped_window_x(x: i32, width: i32, viewport_left: i32, period: i32) -> i32 {
+    let right = i64::from(x) + i64::from(width) - i64::from(viewport_left);
+    let x = right.rem_euclid(i64::from(period)) + i64::from(viewport_left) - i64::from(width);
+    i32::try_from(x).unwrap_or(viewport_left)
+}
+
+fn looped_layout_origin(
+    mut layout: Origin,
+    size: Size,
+    offset: Origin,
+    viewport: IRect,
+    period: Option<i32>,
+) -> Origin {
+    if let Some(period) = period {
+        layout.x = looped_window_x(layout.x + offset.x, size.x, viewport.min.x, period) - offset.x;
+    }
+    layout
+}
+
+fn edge_aligned_offset(
+    offset: i32,
+    strip: &LayoutStrip,
+    windows: &Windows,
+    viewport: IRect,
+) -> i32 {
+    let total_width = strip
+        .last()
+        .ok()
+        .and_then(|column| column.top())
+        .and_then(|last| {
+            Some(windows.layout_position(last)?.x + windows.moving_frame(last)?.width())
+        });
+    total_width.map_or(offset, |width| {
+        if viewport.width() < width {
+            offset.clamp(viewport.max.x - width, viewport.min.x)
+        } else {
+            viewport.min.x
+        }
+    })
+}
+
 /// Clamp a window origin to the range where it still touches both viewport
 /// edges. For an oversized window this range is reversed: from right-aligned
 /// to left-aligned, which lets the strip pan across the hidden content.
@@ -386,6 +431,27 @@ pub struct LayoutStrip {
 }
 
 impl LayoutStrip {
+    /// Native windows cannot have duplicate copies. Leave enough room in a
+    /// short ribbon for each column to leave the viewport before returning.
+    /// A single column keeps its ordinary panning bounds.
+    pub(crate) fn loop_period<W>(&self, viewport_width: i32, get_frame: &W) -> Option<i32>
+    where
+        W: Fn(Entity) -> Option<IRect>,
+    {
+        if self.columns.len() < 2 {
+            return None;
+        }
+        let (total, widest) =
+            self.columns
+                .iter()
+                .try_fold((0_i32, 0), |(total, widest), column| {
+                    let width = column.width(get_frame)?;
+                    Some((total.checked_add(width)?, widest.max(width)))
+                })?;
+        let period = total.max(viewport_width.checked_add(widest)?);
+        (period > 0).then_some(period)
+    }
+
     pub fn new(id: WorkspaceId, virtual_index: u32) -> Self {
         Self {
             id,
@@ -1257,9 +1323,24 @@ fn reshuffle_layout_strip(
         };
 
         let size = frame.size();
+        let loop_period = config
+            .infinite_ribbon()
+            .then(|| strip.loop_period(display_bounds.width(), &|e| windows.moving_frame(e)))
+            .flatten();
+        let layout_origin = looped_layout_origin(
+            layout_position.0,
+            size,
+            active_strip.0,
+            display_bounds,
+            loop_period,
+        );
+        if loop_period.is_some() {
+            frame.min = layout_origin + active_strip.0;
+            frame.max = frame.min + size;
+        }
         // Native frames can trail an inertial strip by one update. Compare the
         // hidden ratio and strip travel in the same layout coordinates.
-        let projected_min = layout_position.0 + active_strip.0;
+        let projected_min = layout_origin + active_strip.0;
         let visible_width = display_bounds
             .intersect(IRect::from_corners(projected_min, projected_min + size))
             .width();
@@ -1276,7 +1357,10 @@ fn reshuffle_layout_strip(
             // column no longer has a placement to keep.
             let current = strip_signature(strip, &windows);
             let strip_target = strip_reposition.map_or(active_strip.0, |reposition| reposition.0);
-            let projected = layout_position.0 + strip_target;
+            let mut projected = layout_position.0 + strip_target;
+            if let Some(period) = loop_period {
+                projected.x = looped_window_x(projected.x, size.x, display_bounds.min.x, period);
+            }
             if signature_matches(&current, &manual.signature)
                 && clamp_origin_to_viewport(projected, size, display_bounds) == projected
             {
@@ -1293,34 +1377,14 @@ fn reshuffle_layout_strip(
         frame.min = clamp_origin_to_viewport(frame.min, size, display_bounds);
         frame.max = frame.min + size;
 
-        let mut strip_position = (frame.min - layout_position.0).with_y(display_bounds.min.y);
+        let mut strip_position = (frame.min - layout_origin).with_y(display_bounds.min.y);
 
         // Enforce the edge invariant when auto-center is off: the leftmost
         // window must touch the left edge and the rightmost the right edge
         // if more than 1 windows in workspace.
-        if !config.auto_center()
-            && !config.continuous_swipe()
-            && let Some(total_strip_width) = strip
-                .last()
-                .ok()
-                .and_then(|column| column.top())
-                .and_then(|last| {
-                    windows
-                        .layout_position(last)
-                        .map(|position| position.0.x)
-                        .zip(windows.moving_frame(last).map(|frame| frame.width()))
-                })
-                .map(|(last_x, last_width)| last_x + last_width)
-        {
-            strip_position.x = if display_bounds.width() < total_strip_width {
-                strip_position.x.clamp(
-                    display_bounds.max.x - total_strip_width,
-                    display_bounds.min.x,
-                )
-            } else {
-                // Strip fits entirely: pin the leftmost window to the left edge.
-                display_bounds.min.x
-            };
+        if !config.auto_center() && !config.continuous_swipe() && loop_period.is_none() {
+            strip_position.x =
+                edge_aligned_offset(strip_position.x, strip, &windows, display_bounds);
         }
 
         // Check how much of the window is hidden. Slivers don't count as
@@ -1383,21 +1447,43 @@ fn ensure_visible_in_strip(
         // before the `&mut Position` query below is touched — Bevy treats
         // the two queries as conflicting system params even though they're
         // never live at the same time here.
-        let Some((strip_entity, display_entity, strip_target, is_new_activation)) = strip_params
-            .p0()
-            .into_iter()
-            .find(|s| s.0.contains(entity))
-            .map(
-                |(_, strip_entity, strip_position, child, active_marker, strip_reposition)| {
-                    let target = strip_reposition.map_or(strip_position.0, |r| r.0);
-                    (
+        let Some((strip_entity, display_entity, strip_target, is_new_activation, loop_period)) =
+            strip_params
+                .p0()
+                .into_iter()
+                .find(|s| s.0.contains(entity))
+                .map(
+                    |(
+                        strip,
                         strip_entity,
-                        child.parent(),
-                        target,
-                        active_marker.is_some_and(|m| m.is_added()),
-                    )
-                },
-            )
+                        strip_position,
+                        child,
+                        active_marker,
+                        strip_reposition,
+                    )| {
+                        let target = strip_reposition.map_or(strip_position.0, |r| r.0);
+                        let loop_period = if config.infinite_ribbon() {
+                            displays
+                                .get(child.parent())
+                                .ok()
+                                .and_then(|(display, dock)| {
+                                    strip.loop_period(
+                                        display.actual_display_bounds(dock, &config).width(),
+                                        &|e| windows.moving_frame(e),
+                                    )
+                                })
+                        } else {
+                            None
+                        };
+                        (
+                            strip_entity,
+                            child.parent(),
+                            target,
+                            active_marker.is_some_and(|m| m.is_added()),
+                            loop_period,
+                        )
+                    },
+                )
         else {
             continue;
         };
@@ -1423,7 +1509,9 @@ fn ensure_visible_in_strip(
         // the strip's current position is on its way somewhere else, so the
         // target offset is what the window's slot will actually be measured
         // against - the same projection `reshuffle_layout_strip` makes.
-        let candidate_min = layout_position.0 + strip_target;
+        let layout_origin =
+            looped_layout_origin(layout_position.0, size, strip_target, viewport, loop_period);
+        let candidate_min = layout_origin + strip_target;
         // Clamp into the viewport. If already on-screen, this is a no-op and
         // the strip target equals its current position — no movement.
         let clamped_min = clamp_origin_to_viewport(candidate_min, size, viewport);
@@ -1433,7 +1521,7 @@ fn ensure_visible_in_strip(
         // Both axes come from the clamp: it is still the minimum shortfall, and
         // keeping the strip's own y here would silently drop the vertical
         // correction for a window sitting above the menu bar.
-        let scroll_to = clamped_min - layout_position.0;
+        let scroll_to = clamped_min - layout_origin;
         trace!("ensure_visible_in_strip: entity {entity}, scroll strip to {scroll_to}");
         // An explicit reveal takes over from both manual placement and inertia.
         if let Ok(mut cmd) = commands.get_entity(strip_entity) {
@@ -1486,6 +1574,19 @@ struct StripWindowContext {
     /// snap directly to its target in `position_layout_windows`, bypassing
     /// the offscreen/parking magnitude heuristic.
     snap_settling: bool,
+    loop_period: Option<i32>,
+}
+
+impl StripWindowContext {
+    fn frame(self, layout: Origin, size: Size, viewport: IRect) -> IRect {
+        let mut origin = layout + self.strip_position;
+        if let Some(period) = self.loop_period
+            && self.strip_position.y < viewport.max.y - PARKED_STRIP_SLIVER
+        {
+            origin.x = looped_window_x(origin.x, size.x, viewport.min.x, period);
+        }
+        IRect::from_corners(origin, origin + size)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1496,6 +1597,7 @@ fn insert_strip_window_contexts(
     swiping: bool,
     display_entity: Entity,
     snap_settling: bool,
+    loop_period: Option<i32>,
 ) {
     for column in &strip.columns {
         insert_column_window_contexts(
@@ -1506,6 +1608,7 @@ fn insert_strip_window_contexts(
             display_entity,
             matches!(column, Column::Stack(_)),
             snap_settling,
+            loop_period,
         );
     }
 }
@@ -1519,6 +1622,7 @@ fn insert_column_window_contexts(
     display_entity: Entity,
     stacked: bool,
     snap_settling: bool,
+    loop_period: Option<i32>,
 ) {
     match column {
         Column::Single(entity) | Column::Fullscren(entity) => {
@@ -1530,6 +1634,7 @@ fn insert_column_window_contexts(
                     display_entity,
                     stacked,
                     snap_settling,
+                    loop_period,
                 },
             );
         }
@@ -1543,6 +1648,7 @@ fn insert_column_window_contexts(
                     display_entity,
                     stacked,
                     snap_settling,
+                    loop_period,
                 );
             }
         }
@@ -1556,6 +1662,7 @@ fn insert_column_window_contexts(
                         display_entity,
                         stacked,
                         snap_settling,
+                        loop_period,
                     },
                 );
             }
@@ -1572,6 +1679,7 @@ fn insert_stack_item_window_contexts(
     display_entity: Entity,
     stacked: bool,
     snap_settling: bool,
+    loop_period: Option<i32>,
 ) {
     match item {
         StackItem::Single(entity) => {
@@ -1583,6 +1691,7 @@ fn insert_stack_item_window_contexts(
                     display_entity,
                     stacked,
                     snap_settling,
+                    loop_period,
                 },
             );
         }
@@ -1596,6 +1705,7 @@ fn insert_stack_item_window_contexts(
                         display_entity,
                         stacked,
                         snap_settling,
+                        loop_period,
                     },
                 );
             }
@@ -1607,7 +1717,7 @@ fn insert_stack_item_window_contexts(
 /// the layout strip against the current display viewport.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn position_layout_windows(
-    positioned_windows: RepositionedWindows,
+    mut window_queries: ParamSet<(LoopWindowFrames, RepositionedWindows)>,
     workspaces: StripsForWindowPositioning,
     snap_guards: Query<&SnapStripMarker>,
     overview_handoffs: Query<&super::overview::OverviewHandoff>,
@@ -1623,6 +1733,22 @@ fn position_layout_windows(
             || overview_handoffs
                 .iter()
                 .any(|handoff| handoff.strip == strip_entity);
+        let frames = window_queries.p0();
+        let loop_period = displays
+            .get(child_of.parent())
+            .ok()
+            .filter(|_| config.infinite_ribbon())
+            .and_then(|(display, dock)| {
+                layout_strip.loop_period(
+                    display.actual_display_bounds(dock, &config).width(),
+                    &|entity| {
+                        frames
+                            .get(entity)
+                            .ok()
+                            .map(|bounds| IRect::from_corners(Origin::ZERO, bounds.0))
+                    },
+                )
+            });
         insert_strip_window_contexts(
             &mut strip_contexts,
             layout_strip,
@@ -1630,10 +1756,11 @@ fn position_layout_windows(
             swiping,
             child_of.parent(),
             snap_settling,
+            loop_period,
         );
     }
 
-    for (entity, window, layout_position, mut position, mut bounds) in positioned_windows {
+    for (entity, window, layout_position, mut position, mut bounds) in &mut window_queries.p1() {
         let Some(context) = strip_contexts.get(&entity) else {
             return;
         };
@@ -1650,10 +1777,8 @@ fn position_layout_windows(
         // h_pad to the virtual x, so subtract it here so the OS window
         // lands exactly sliver_width pixels from the screen edge.
         let h_pad = window.horizontal_padding();
-        let mut frame = IRect::from_corners(layout_position.0, layout_position.0 + bounds.0);
+        let mut frame = context.frame(layout_position.0, bounds.0, viewport);
         let width = frame.width();
-        frame.min += context.strip_position;
-        frame.max += context.strip_position;
 
         let mut offscreen = false;
         if frame.max.x <= viewport.min.x + h_pad {
@@ -1671,6 +1796,12 @@ fn position_layout_windows(
             offscreen = true;
         }
         frame.max.x = frame.min.x + width;
+        // Recycling a parked column must not animate it through the screen
+        // when a snap finishes and Scrolling is removed on the same tick.
+        let recycling = context.loop_period.is_some()
+            && offscreen
+            && (position.x + width <= viewport.min.x + offscreen_sliver_width + h_pad
+                || position.x >= viewport.max.x - offscreen_sliver_width - h_pad);
 
         // During swipe, keep full height. The vertical sliver inset only
         // applies to horizontally off-screen windows, so they expose just
@@ -1732,6 +1863,7 @@ fn position_layout_windows(
             // restore-driven, since its last position can land close enough
             // to its target. See `SnapStripMarker`.
             if context.swiping
+                || recycling
                 || context.snap_settling
                 || offscreen_move && !config.virtual_workspace_animations()
             {
@@ -1750,6 +1882,17 @@ fn position_layout_windows(
 mod tests {
     use super::*;
     use bevy::prelude::*;
+
+    #[test]
+    fn infinite_columns_change_laps_only_after_leaving_the_viewport() {
+        for left in [0, -1920, 1440] {
+            assert_eq!(looped_window_x(left - 399, 400, left, 3000), left - 399);
+            assert_eq!(looped_window_x(left - 400, 400, left, 3000), left - 400);
+            assert_eq!(looped_window_x(left - 401, 400, left, 3000), left + 2599);
+            assert_eq!(looped_window_x(left - 3000, 400, left, 3000), left);
+            assert_eq!(looped_window_x(left + 3000, 400, left, 3000), left);
+        }
+    }
 
     #[test]
     fn signature_tolerates_pixel_drift_but_not_a_reshape() {
@@ -1863,6 +2006,7 @@ mod tests {
             true,
             display_entity,
             false,
+            None,
         );
 
         let stacked_leader = contexts.get(&entities[0]).unwrap();
