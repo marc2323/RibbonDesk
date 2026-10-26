@@ -261,6 +261,7 @@ impl TryFrom<&Event> for LuaEvent {
             | Event::OverviewPan { .. }
             | Event::OverviewPanBegin
             | Event::OverviewPanEnd { .. }
+            | Event::ThreeFingerTap { .. }
             | Event::WindowBehaviorChanged { .. } => return Err(NotMarshallable),
         })
     }

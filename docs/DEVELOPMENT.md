@@ -160,6 +160,12 @@ Physical trackpad feel still needs user tuning.
 A per-workspace `ScrollPositionHold` preserves the viewport through hover,
 repeated focus notifications, activation, and ordinary clicks. Command-click
 releases the hold for the clicked workspace on mouse-up and reveals the window.
+Quick stationary three-finger taps also focus and reveal the managed window
+under the pointer, using the same quick animation without generating an app
+click. The native input handler tracks touch identities, a 300 ms contact limit,
+and movement from each finger's origin; staggered landings/lifts are accepted,
+while swipes, cancelled contacts, extra fingers, and physical-click duplicates
+are rejected. A physical three-finger click follows the Command-click path.
 Explicit navigation and arrangement hotkeys also reveal their target and stop
 an active coast. Modifier scrolling consumes the native momentum tail once.
 

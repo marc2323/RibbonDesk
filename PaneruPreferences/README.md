@@ -127,6 +127,9 @@ also uses free-scrolling behavior, regardless of the paging toggle.
 Touch again to stop a fling, or pause before lifting to stop in place. Ordinary
 hover, focus notifications, and clicks keep a manually chosen viewport.
 **Command-click** reveals a managed window with a short animation on mouse-up.
+You can also **tap with three fingers** with the pointer over the window to focus
+and reveal it. A quick stationary tap snaps; swipes and long holds keep their
+scrolling behavior. A physical three-finger click also reveals on mouse-up.
 Navigation hotkeys reveal their target; J/K follows a moved window and stops
 an active coast. Another manual scroll restores the viewport hold.
 

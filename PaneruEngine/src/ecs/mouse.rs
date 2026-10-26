@@ -47,6 +47,7 @@ impl Plugin for MouseEventsPlugin {
                     mouse_moved_trigger,
                     mouse_resize_trigger,
                     mouse_down_trigger,
+                    three_finger_tap_trigger,
                 )
                     .run_if(mission_control_inactive)
                     .run_if(super::overview::inactive),
@@ -58,6 +59,47 @@ impl Plugin for MouseEventsPlugin {
                 .chain()
                 .run_if(on_message::<InputEvent>),
         );
+    }
+}
+
+/// A tap has no native mouse click to activate its target. Focus it explicitly
+/// and use Command-click's quick reveal, without clicking content in the app.
+fn three_finger_tap_trigger(
+    mut messages: MessageReader<InputEvent>,
+    windows: Windows,
+    workspaces: Query<(Entity, &LayoutStrip), With<ActiveWorkspaceMarker>>,
+    window_manager: Res<WindowManager>,
+    mouse_held: Query<Entity, With<MouseHeldMarker>>,
+    mut global_state: GlobalState,
+    mut commands: Commands,
+) {
+    for InputEvent(event) in messages.read() {
+        let Event::ThreeFingerTap { point } = event else {
+            continue;
+        };
+        let Some((window, entity)) = window_manager
+            .find_window_at_point(point)
+            .ok()
+            .and_then(|window_id| windows.find_managed(window_id))
+        else {
+            continue;
+        };
+        let Some((workspace, _)) = workspaces.iter().find(|(_, strip)| strip.contains(entity))
+        else {
+            continue;
+        };
+        for held in &mouse_held {
+            commands.entity(held).try_despawn();
+        }
+        commands
+            .entity(workspace)
+            .try_remove::<(Scrolling, ScrollPositionHold)>();
+        // Treat activation like pointer focus so automatic centering and mouse
+        // warping cannot compete with the requested reveal.
+        global_state.set_skip_reshuffle(true);
+        global_state.set_ffm_flag(Some(window.id()));
+        commands.focus_entity(entity, true);
+        commands.ensure_visible_quickly(entity);
     }
 }
 
