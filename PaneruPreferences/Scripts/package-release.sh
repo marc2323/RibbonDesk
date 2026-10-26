@@ -25,7 +25,7 @@ package = pathlib.Path(sys.argv[1])
 app = package / 'RibbonDesk.app'
 plist = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
-signature = subprocess.run(['codesign', '-dv', str(app)], capture_output=True, text=True, check=True).stderr
+signature = subprocess.run(['codesign', '-d', '--verbose=4', str(app)], capture_output=True, text=True, check=True).stderr
 manifest = {
     'product': 'RibbonDesk', 'release': 'v' + plist['CFBundleShortVersionString'],
     'app_version': plist['CFBundleShortVersionString'], 'bundle_build': plist['CFBundleVersion'],
