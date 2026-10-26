@@ -16,9 +16,9 @@ use crate::config::Config;
 use crate::ecs::params::Windows;
 use crate::ecs::workspace::SnapStripMarker;
 use crate::ecs::{
-    ActiveWorkspaceMarker, Bounds, DockPosition, EnsureVisibleMarker, Initializing, LayoutPosition,
-    ManualStripOffset, Position, QuickReveal, RepositionMarker, ReshuffleAroundMarker,
-    ScrollPositionHold, Scrolling, SpawnCommandsExt,
+    ActiveWorkspaceMarker, Bounds, DockPosition, EnsureVisibleMarker, HorizontalFocusReveal,
+    Initializing, LayoutPosition, ManualStripOffset, Position, QuickReveal, RepositionMarker,
+    ReshuffleAroundMarker, ScrollPositionHold, Scrolling, SpawnCommandsExt,
 };
 use crate::errors::{Error, Result};
 use crate::manager::{Display, Origin, Size, Window};
@@ -129,9 +129,21 @@ fn looped_layout_origin(
     offset: Origin,
     viewport: IRect,
     period: Option<i32>,
+    reveal: Option<HorizontalFocusReveal>,
 ) -> Origin {
     if let Some(period) = period {
         layout.x = looped_window_x(layout.x + offset.x, size.x, viewport.min.x, period) - offset.x;
+        // A two-column ribbon has the same neighbor in either direction. At
+        // an exact edge the ordinary copy can be on the opposite side. Only
+        // choose another lap once the window is wholly outside the viewport.
+        let projected = layout.x + offset.x;
+        match reveal {
+            Some(HorizontalFocusReveal::East) if projected + size.x <= viewport.min.x => {
+                layout.x += period;
+            }
+            Some(HorizontalFocusReveal::West) if projected >= viewport.max.x => layout.x -= period,
+            _ => {}
+        }
     }
     layout
 }
@@ -1333,6 +1345,7 @@ fn reshuffle_layout_strip(
             active_strip.0,
             display_bounds,
             loop_period,
+            None,
         );
         if loop_period.is_some() {
             frame.min = layout_origin + active_strip.0;
@@ -1426,6 +1439,7 @@ fn ensure_visible_in_strip(
         &LayoutPosition,
         &EnsureVisibleMarker,
         Has<QuickReveal>,
+        Option<&HorizontalFocusReveal>,
     )>,
     mut strip_params: ParamSet<(
         StripPlacements,
@@ -1437,9 +1451,9 @@ fn ensure_visible_in_strip(
     config: Res<Config>,
     mut commands: Commands,
 ) {
-    for (entity, layout_position, marker, quick) in markers {
+    for (entity, layout_position, marker, quick, reveal) in markers {
         if let Ok(mut cmd) = commands.get_entity(entity) {
-            cmd.try_remove::<(EnsureVisibleMarker, QuickReveal)>();
+            cmd.try_remove::<(EnsureVisibleMarker, QuickReveal, HorizontalFocusReveal)>();
         }
         // Each marker is independent, and its own marker was already consumed
         // above: bailing out of the loop would silently drop the rest.
@@ -1447,43 +1461,43 @@ fn ensure_visible_in_strip(
         // before the `&mut Position` query below is touched — Bevy treats
         // the two queries as conflicting system params even though they're
         // never live at the same time here.
-        let Some((strip_entity, display_entity, strip_target, is_new_activation, loop_period)) =
-            strip_params
-                .p0()
-                .into_iter()
-                .find(|s| s.0.contains(entity))
-                .map(
-                    |(
-                        strip,
+        let Some((
+            strip_entity,
+            display_entity,
+            strip_target,
+            is_new_activation,
+            loop_period,
+            tabbed,
+        )) = strip_params
+            .p0()
+            .into_iter()
+            .find(|s| s.0.contains(entity))
+            .map(
+                |(strip, strip_entity, strip_position, child, active_marker, strip_reposition)| {
+                    let target = strip_reposition.map_or(strip_position.0, |r| r.0);
+                    let loop_period = if config.infinite_ribbon() {
+                        displays
+                            .get(child.parent())
+                            .ok()
+                            .and_then(|(display, dock)| {
+                                strip.loop_period(
+                                    display.actual_display_bounds(dock, &config).width(),
+                                    &|e| windows.moving_frame(e),
+                                )
+                            })
+                    } else {
+                        None
+                    };
+                    (
                         strip_entity,
-                        strip_position,
-                        child,
-                        active_marker,
-                        strip_reposition,
-                    )| {
-                        let target = strip_reposition.map_or(strip_position.0, |r| r.0);
-                        let loop_period = if config.infinite_ribbon() {
-                            displays
-                                .get(child.parent())
-                                .ok()
-                                .and_then(|(display, dock)| {
-                                    strip.loop_period(
-                                        display.actual_display_bounds(dock, &config).width(),
-                                        &|e| windows.moving_frame(e),
-                                    )
-                                })
-                        } else {
-                            None
-                        };
-                        (
-                            strip_entity,
-                            child.parent(),
-                            target,
-                            active_marker.is_some_and(|m| m.is_added()),
-                            loop_period,
-                        )
-                    },
-                )
+                        child.parent(),
+                        target,
+                        active_marker.is_some_and(|m| m.is_added()),
+                        loop_period,
+                        strip.tabbed(entity),
+                    )
+                },
+            )
         else {
             continue;
         };
@@ -1509,12 +1523,21 @@ fn ensure_visible_in_strip(
         // the strip's current position is on its way somewhere else, so the
         // target offset is what the window's slot will actually be measured
         // against - the same projection `reshuffle_layout_strip` makes.
-        let layout_origin =
-            looped_layout_origin(layout_position.0, size, strip_target, viewport, loop_period);
+        let layout_origin = looped_layout_origin(
+            layout_position.0,
+            size,
+            strip_target,
+            viewport,
+            loop_period,
+            reveal.copied(),
+        );
         let candidate_min = layout_origin + strip_target;
         // Clamp into the viewport. If already on-screen, this is a no-op and
         // the strip target equals its current position — no movement.
-        let clamped_min = clamp_origin_to_viewport(candidate_min, size, viewport);
+        let mut clamped_min = clamp_origin_to_viewport(candidate_min, size, viewport);
+        if reveal.is_some() && config.auto_center() && !tabbed {
+            clamped_min.x = viewport.center().x - size.x / 2;
+        }
         if clamped_min == candidate_min {
             continue;
         }
@@ -1882,6 +1905,70 @@ fn position_layout_windows(
 mod tests {
     use super::*;
     use bevy::prelude::*;
+
+    #[test]
+    fn infinite_focus_reveal_selects_the_requested_offscreen_lap() {
+        for left in [0, -1920, 1440] {
+            let viewport = IRect::new(left, 20, left + 1024, 768);
+            let size = Size::new(1024, 748);
+            let layout = Origin::new(1024, 0);
+            let offset = Origin::new(left, 20);
+            assert_eq!(
+                looped_layout_origin(layout, size, offset, viewport, Some(2048), None).x,
+                -1024
+            );
+            assert_eq!(
+                looped_layout_origin(
+                    layout,
+                    size,
+                    offset,
+                    viewport,
+                    Some(2048),
+                    Some(HorizontalFocusReveal::East)
+                )
+                .x,
+                1024
+            );
+            assert_eq!(
+                looped_layout_origin(
+                    layout,
+                    size,
+                    offset,
+                    viewport,
+                    Some(2048),
+                    Some(HorizontalFocusReveal::West)
+                )
+                .x,
+                -1024
+            );
+            assert_eq!(
+                looped_layout_origin(
+                    Origin::new(2048, 0),
+                    size,
+                    offset,
+                    viewport,
+                    Some(5120),
+                    Some(HorizontalFocusReveal::West)
+                )
+                .x,
+                -3072
+            );
+            let partial = offset - Origin::new(100, 0);
+            assert_eq!(
+                looped_layout_origin(
+                    layout,
+                    size,
+                    partial,
+                    viewport,
+                    Some(2048),
+                    Some(HorizontalFocusReveal::West)
+                )
+                .x,
+                1024,
+                "a visible native window must not change laps"
+            );
+        }
+    }
 
     #[test]
     fn infinite_columns_change_laps_only_after_leaving_the_viewport() {

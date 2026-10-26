@@ -22,8 +22,8 @@ use crate::ecs::layout::{
 use crate::ecs::params::{ActiveDisplay, ActiveDisplayMut, Windows};
 use crate::ecs::{
     ActiveDisplayMarker, ActiveWorkspaceMarker, Bounds, DockPosition, FocusedMarker,
-    FullWidthMarker, ManualStripOffset, NativeFullscreenMarker, RaiseWindow, SelectedVirtualMarker,
-    SendMessageTrigger, SpawnCommandsExt, Timeout, Unmanaged,
+    FullWidthMarker, HorizontalFocusReveal, ManualStripOffset, NativeFullscreenMarker, RaiseWindow,
+    SelectedVirtualMarker, SendMessageTrigger, SpawnCommandsExt, Timeout, Unmanaged,
 };
 use crate::events::Event;
 use crate::manager::{Application, Display, Origin, Size, Window, WindowManager, origin_from};
@@ -175,6 +175,65 @@ pub(crate) fn get_window_in_direction(
     }
 }
 
+/// Focus can cross the infinite seam while arrangement keeps bounded neighbors.
+fn get_focus_window_in_direction(
+    direction: &Direction,
+    entity: Entity,
+    strip: &LayoutStrip,
+    infinite: bool,
+) -> Option<Entity> {
+    get_window_in_direction(direction, entity, strip).or_else(|| {
+        if !infinite || strip.len() < 2 {
+            return None;
+        }
+        let index = strip.index_of(entity).ok()?;
+        let column = match direction {
+            Direction::West if index == 0 => strip.last(),
+            Direction::East if index + 1 == strip.len() => strip.first(),
+            _ => return None,
+        }
+        .ok()?;
+        let row = strip.get(index).ok()?.position_of(entity)?;
+        column.at_or_last(row)
+    })
+}
+
+fn focus_candidate(
+    direction: &Direction,
+    focused: Entity,
+    active_strip: &LayoutStrip,
+    infinite: bool,
+    workspaces: &Query<(&LayoutStrip, Entity, Option<&NativeFullscreenMarker>)>,
+) -> Option<Entity> {
+    if !active_strip.contains(focused) {
+        // Re-enter the active ribbon when native focus is outside its columns.
+        return match direction {
+            Direction::East | Direction::First => {
+                active_strip.first().ok().and_then(|column| column.top())
+            }
+            Direction::West | Direction::Last => {
+                active_strip.last().ok().and_then(|column| column.top())
+            }
+            Direction::Nth(index) => active_strip
+                .get(*index)
+                .ok()
+                .and_then(|column| column.top()),
+            Direction::North | Direction::South => None,
+        };
+    }
+    get_focus_window_in_direction(direction, focused, active_strip, infinite).or_else(|| {
+        // A bounded ribbon can still enter a fullscreen workspace to its right.
+        if !matches!(direction, Direction::East) || active_strip.right_neighbour(focused).is_some()
+        {
+            return None;
+        }
+        workspaces
+            .iter()
+            .find(|(strip, _, fullscreen)| fullscreen.is_some() && strip.id() != active_strip.id())
+            .and_then(|(strip, _, _)| strip.get(0).ok().and_then(|column| column.top()))
+    })
+}
+
 /// 45° direction cone, closest by squared Euclidean distance.
 /// `First` / `Last` are strip-only and return `None`.
 fn pick_nearest_in_direction(
@@ -292,6 +351,7 @@ fn command_move_focus(
     windows: Windows,
     workspaces: Query<(&LayoutStrip, Entity, Option<&NativeFullscreenMarker>)>,
     active_display: ActiveDisplay,
+    config: Res<Config>,
     window_manager: Res<WindowManager>,
     mut commands: Commands,
 ) {
@@ -352,43 +412,27 @@ fn command_move_focus(
         return;
     }
 
-    // If focus is on a window that no longer lives in the active strip
-    // (e.g. it just became floating, was minimised on another row, or
-    // the OS handed focus to a window we don't track on this strip),
-    // `get_window_in_direction` would return None and the user would
-    // be unable to leave that window. Enter the active strip from the
-    // appropriate side so subsequent presses behave normally.
-    let candidate = if active_strip.contains(focused_entity) {
-        get_window_in_direction(direction, focused_entity, active_strip).or_else(|| {
-            // At the right edge going East, enter the fullscreen workspaces.
-            (matches!(direction, Direction::East)
-                && active_strip.right_neighbour(focused_entity).is_none())
-            .then(|| {
-                workspaces
-                    .iter()
-                    .find(|(strip, _, fullscreen)| {
-                        fullscreen.is_some() && strip.id() != active_strip.id()
-                    })
-                    .and_then(|(strip, _, _)| strip.get(0).ok().and_then(|col| col.top()))
-            })
-            .flatten()
-        })
-    } else {
-        match direction {
-            Direction::East | Direction::First => {
-                active_strip.first().ok().and_then(|col| col.top())
-            }
-            Direction::West | Direction::Last => active_strip.last().ok().and_then(|col| col.top()),
-            Direction::Nth(index) => active_strip
-                .get(*index)
-                .ok()
-                .and_then(|column| column.top()),
-            Direction::North | Direction::South => None,
-        }
-    };
+    let candidate = focus_candidate(
+        direction,
+        focused_entity,
+        active_strip,
+        config.infinite_ribbon(),
+        &workspaces,
+    );
 
     if let Some(entity) = candidate {
         focus_with_verification(entity, Some(focused_entity), &workspaces, &mut commands);
+        if config.infinite_ribbon() && active_strip.len() > 1 {
+            let reveal = match direction {
+                Direction::West => Some(HorizontalFocusReveal::West),
+                Direction::East => Some(HorizontalFocusReveal::East),
+                _ => None,
+            };
+            if let Some(reveal) = reveal {
+                commands.entity(entity).insert(reveal);
+                return;
+            }
+        }
         // Explicitly reshuffle so the target window is brought into view.
         // This avoids a race where focus-follows-mouse leaves skip_reshuffle
         // set, causing the WindowFocused handler to skip the reshuffle.
@@ -1749,6 +1793,54 @@ mod tests {
         // From e1 (bottom of stack), north should be e0, south is None
         assert_eq!(get_window_in_direction(&north, e1, &strip), Some(e0));
         assert_eq!(get_window_in_direction(&south, e1, &strip), None);
+    }
+
+    #[test]
+    fn infinite_focus_wrap_preserves_stack_rows_and_falls_back_for_shorter_columns() {
+        let (_world, mut strip, entities) = setup_world_with_layout();
+        let [first_top, first_bottom, _, last_bottom] = entities.as_slice() else {
+            panic!("four test windows")
+        };
+        assert_eq!(
+            get_focus_window_in_direction(&Direction::West, *first_bottom, &strip, true),
+            Some(*last_bottom)
+        );
+        assert_eq!(
+            get_focus_window_in_direction(&Direction::East, *last_bottom, &strip, true),
+            Some(*first_top)
+        );
+        strip.stack(*last_bottom).expect("second stack");
+        assert_eq!(
+            get_focus_window_in_direction(&Direction::West, *first_bottom, &strip, true),
+            Some(*last_bottom)
+        );
+        assert_eq!(
+            get_focus_window_in_direction(&Direction::East, *last_bottom, &strip, true),
+            Some(*first_bottom)
+        );
+        for infinite in [false, true] {
+            assert_eq!(
+                get_focus_window_in_direction(&Direction::North, *first_top, &strip, infinite),
+                None
+            );
+            assert_eq!(
+                get_focus_window_in_direction(&Direction::South, *first_bottom, &strip, infinite),
+                None
+            );
+        }
+        assert_eq!(
+            get_focus_window_in_direction(&Direction::West, *first_bottom, &strip, false),
+            None
+        );
+        assert_eq!(
+            get_focus_window_in_direction(&Direction::East, *last_bottom, &strip, false),
+            None
+        );
+        assert_eq!(
+            get_window_in_direction(&Direction::East, *last_bottom, &strip),
+            None,
+            "arrangement still stops at the edge"
+        );
     }
 
     #[test]

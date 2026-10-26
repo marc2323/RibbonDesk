@@ -300,6 +300,14 @@ pub struct EnsureVisibleMarker {
     pub snap: bool,
 }
 
+/// Choose the offscreen lap in the direction requested by keyboard focus.
+/// Consumed alongside the target's `EnsureVisibleMarker`.
+#[derive(Component, Clone, Copy)]
+pub enum HorizontalFocusReveal {
+    West,
+    East,
+}
+
 /// Marks a [`LayoutStrip`](crate::ecs::layout::LayoutStrip) whose offset was
 /// placed deliberately by the user (`Operation::Center`, `Operation::Snap`)
 /// rather than derived from a window frame. While it is present and still
