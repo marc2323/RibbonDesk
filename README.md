@@ -3,9 +3,13 @@
 A scrolling ribbon of windows for macOS, with a native menu-bar app and an
 overview for navigating and arranging your whole workspace.
 
-[Download v1.20](https://github.com/marc2323/RibbonDesk/releases/tag/v1.20) ·
+[Download v1.21](https://github.com/marc2323/RibbonDesk/releases/tag/v1.21) ·
 [Settings guide](PaneruPreferences/README.md) ·
 [Build and development](docs/DEVELOPMENT.md)
+
+Version 1.21 adds three-finger tap/click to reveal windows, experimental magnetic
+snapping, looping keyboard navigation in Infinite ribbon, and snapping for every
+Ribbon window width.
 
 ## What it does
 
@@ -25,8 +29,8 @@ overview for navigating and arranging your whole workspace.
 **Requirements:** Apple Silicon Mac, macOS 13 or later. The release download
 includes the engine; Rust, Homebrew, and Xcode are not required.
 
-1. Download **RibbonDesk-1.20-macos-arm64.zip** from the
-   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.20) and extract it.
+1. Download **RibbonDesk-1.21-macos-arm64.zip** from the
+   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.21) and extract it.
 2. If RibbonDesk (or the older Paneru Settings app) is running, choose **Quit**
    in its menu-bar settings first.
 3. Open **Install.command** from the extracted folder. Keep the app, installer,
@@ -36,7 +40,7 @@ includes the engine; Rust, Homebrew, and Xcode are not required.
 5. Complete the macOS **Accessibility** setup when requested. Allow **Screen
    Recording** for RibbonDesk to enable window previews in overview.
 
-**Signing status:** v1.20 uses a local development signature and is **not
+**Signing status:** v1.21 uses a local development signature and is **not
 Apple-notarized**. macOS may require manual approval before opening a downloaded
 copy. See [Apple’s guidance for opening apps](https://support.apple.com/en-us/102445).
 
