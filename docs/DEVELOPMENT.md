@@ -131,11 +131,41 @@ Space identities and are also checked at native input time during transitions.
 
 ## Implementation notes
 
+### Experimental magnetic snapping
+
+The `codex/magnetic-snapping` branch adds an opt-in **Magnetic snapping** toggle
+under Snapping (development app v1.21, build 24). It replaces the one-page cap
+and projected flick destination with local capture at both column edges. Finger
+motion stays direct; after release, speed and distance determine whether an edge
+catches or motion coasts through. All column widths participate, including apps
+with minimum sizes. Overview retains its existing free panning.
+
+Start with magnet strength 1.8 screens/second, range 20%, momentum 1× and decay 4.
+Strength controls capture speed; range controls placement tolerance. Lower
+strength or higher momentum makes skipping easier. Saved feel presets include
+the mode and both magnet controls. Turning the mode off restores the saved
+paging/classic settings; it does not reset other tuning sliders.
+
+The selector borrows column geometry without allocating or querying macOS, exits
+early above the maximum capture speed, and reuses the existing critically damped
+spring. A swept-segment check protects narrow magnets at lower frame rates.
+The existing scroll component and event loop own motion and are idle at rest.
+Regression tests cover medium/fast flicks with paging enabled, both directions,
+precise drags, strength/range/momentum changes, arbitrary column widths, missing
+wheel phases, touch/keyboard interruption and both sides of the infinite seam.
+Physical trackpad feel still needs user tuning.
+
 ### Viewport and focus
 
 A per-workspace `ScrollPositionHold` preserves the viewport through hover,
 repeated focus notifications, activation, and ordinary clicks. Command-click
 releases the hold for the clicked workspace on mouse-up and reveals the window.
+Quick stationary three-finger taps also focus and reveal the managed window
+under the pointer, using the same quick animation without generating an app
+click. The native input handler tracks touch identities, a 300 ms contact limit,
+and movement from each finger's origin; staggered landings/lifts are accepted,
+while swipes, cancelled contacts, extra fingers, and physical-click duplicates
+are rejected. A physical three-finger click follows the Command-click path.
 Explicit navigation and arrangement hotkeys also reveal their target and stop
 an active coast. Modifier scrolling consumes the native momentum tail once.
 

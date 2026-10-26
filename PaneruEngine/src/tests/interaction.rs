@@ -451,6 +451,132 @@ fn scroll_hold_interaction_events(command: Modifiers) -> Vec<Event> {
 }
 
 #[test]
+fn three_finger_tap_focuses_and_reveals_the_pointed_window_after_scrolling() {
+    for focus_follows_mouse in [false, true] {
+        for hidden_ratio in [0.0, 1.0] {
+            let config: Config = (
+                MainOptions {
+                    preserve_scroll_until_click: Some(true),
+                    focus_follows_mouse: Some(focus_follows_mouse),
+                    auto_center: Some(true),
+                    animation_speed: Some(10000.0),
+                    swipe_gesture_fingers: Some(3),
+                    window_hidden_ratio: Some(hidden_ratio),
+                    ..Default::default()
+                },
+                vec![],
+            )
+                .into();
+            TestHarness::new()
+                .with_config(config)
+                .with_windows(5)
+                .with_command_duration(Duration::from_secs(2))
+                .on_iteration(1, |world, state| {
+                    let (offset, held) = active_offset_and_hold(world);
+                    assert!(held && offset.x < 0);
+                    world.insert_resource(ExpectedHeldOffset(offset));
+                    state.focus_window(4);
+                })
+                .on_iteration(2, |world, _| {
+                    assert!(active_offset_and_hold(world).1);
+                    assert_ne!(
+                        find_window_entity(0, world),
+                        world
+                            .query_filtered::<Entity, With<FocusedMarker>>()
+                            .single(world)
+                            .expect("focused")
+                    );
+                })
+                .on_iteration(3, |world, state| {
+                    assert_focused!(world, 0);
+                    assert_eq!(
+                        state
+                            .create_application(TEST_PROCESS_ID)
+                            .focused_window_id()
+                            .expect("native focus"),
+                        0
+                    );
+                    let (offset, held) = active_offset_and_hold(world);
+                    assert!(!held);
+                    assert!(offset.x > world.resource::<ExpectedHeldOffset>().0.x);
+                    let target = find_window_entity(0, world);
+                    let frame = world.get::<Window>(target).expect("target").frame();
+                    assert!(frame.min.x >= 0 && frame.max.x <= TEST_DISPLAY_WIDTH);
+                    assert!(
+                        world
+                            .query::<&crate::ecs::Scrolling>()
+                            .iter(world)
+                            .next()
+                            .is_none()
+                    );
+                })
+                .run(vec![
+                    Event::MenuOpened { window_id: 0 },
+                    Event::Swipe {
+                        delta: 0.08,
+                        fingers: 3,
+                    },
+                    Event::WindowFocused { window_id: 4 },
+                    Event::ThreeFingerTap {
+                        point: CGPoint::new(100.0, 120.0),
+                    },
+                ]);
+        }
+    }
+}
+
+#[test]
+fn three_finger_tap_outside_managed_windows_or_during_native_overviews_preserves_the_viewport() {
+    for blocked in 0..3 {
+        let config: Config = (
+            MainOptions {
+                preserve_scroll_until_click: Some(true),
+                focus_follows_mouse: Some(false),
+                animation_speed: Some(10000.0),
+                swipe_gesture_fingers: Some(3),
+                ..Default::default()
+            },
+            vec![],
+        )
+            .into();
+        TestHarness::new()
+            .with_config(config)
+            .with_windows(5)
+            .with_command_duration(Duration::from_secs(2))
+            .on_iteration(1, move |world, _| {
+                let offset = active_offset_and_hold(world).0;
+                world.insert_resource(ExpectedHeldOffset(offset));
+                if blocked == 1 {
+                    world.insert_resource(crate::ecs::MissionControlActive(true));
+                } else if blocked == 2 {
+                    world
+                        .resource_mut::<crate::ecs::overview::OverviewActive>()
+                        .0 = true;
+                }
+            })
+            .on_iteration(2, |world, _| {
+                let (offset, held) = active_offset_and_hold(world);
+                assert!(held);
+                assert_eq!(offset, world.resource::<ExpectedHeldOffset>().0);
+            })
+            .run(vec![
+                Event::MenuOpened { window_id: 0 },
+                Event::Swipe {
+                    delta: 0.04,
+                    fingers: 3,
+                },
+                Event::ThreeFingerTap {
+                    point: if blocked != 0 {
+                        CGPoint::new(100.0, 120.0)
+                    } else {
+                        CGPoint::new(-10000.0, -10000.0)
+                    },
+                },
+            ]);
+    }
+}
+
+#[test]
 fn command_click_reveals_when_mouse_events_arrive_in_one_frame() {
     let config: Config = (
         MainOptions {

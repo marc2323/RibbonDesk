@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_app_kit::{NSEvent, NSEventType, NSTouch, NSTouchPhase};
+use objc2_app_kit::{NSEvent, NSEventPhase, NSEventType, NSTouch, NSTouchPhase};
 use objc2_core_foundation::{
     CFMachPort, CFRetained, CFRunLoop, CFRunLoopSource, kCFRunLoopCommonModes,
 };
@@ -53,6 +53,7 @@ const WINDOW_SCROLL_INTERVAL: Duration = Duration::from_millis(180);
 /// One finger, as a single gesture event saw it. Sampled out of the `NSTouch`
 /// set once per event rather than read repeatedly through Objective-C, since
 /// the matching in [`InputHandler::handle_swipe`] is quadratic in finger count.
+#[derive(Clone)]
 struct Touch {
     /// Opaque per-finger token, compared with `isEqual:` to follow one finger
     /// across events. `NSSet` iteration order is not stable, so position in the
@@ -63,6 +64,8 @@ struct Touch {
     /// Whether the finger landed this event, which suppresses delta tracking
     /// until every finger is down.
     began: bool,
+    ended: bool,
+    cancelled: bool,
 }
 
 impl Touch {
@@ -72,11 +75,14 @@ impl Touch {
             .iter()
             .map(|touch| {
                 let position = touch.normalizedPosition();
+                let phase = touch.phase();
                 Self {
                     identity: touch.identity(),
                     x: position.x,
                     y: position.y,
-                    began: touch.phase() == NSTouchPhase::Began,
+                    began: phase == NSTouchPhase::Began,
+                    ended: phase == NSTouchPhase::Ended,
+                    cancelled: phase == NSTouchPhase::Cancelled,
                 }
             })
             .collect()
@@ -87,6 +93,70 @@ impl Touch {
         // SAFETY: `identity` is documented as conforming to `NSObject`, so it
         // answers `isEqual:`.
         unsafe { msg_send![&*self.identity, isEqual: &*other.identity] }
+    }
+}
+
+/// Tracks one complete contact sequence, including staggered landing/lifting.
+/// Origins are matched by identity so tiny moves cannot accumulate into a swipe
+/// and then return to the start and be mistaken for a tap.
+#[derive(Default)]
+struct ThreeFingerTap {
+    started: Option<Instant>,
+    origins: Vec<Touch>,
+    fingers_down: usize,
+    three_down: bool,
+    rejected: bool,
+}
+
+impl ThreeFingerTap {
+    fn update(&mut self, fingers: &[Touch], ended: bool, cancelled: bool, now: Instant) -> bool {
+        const MAX_DURATION: Duration = Duration::from_millis(300);
+        const MAX_MOVEMENT: f64 = 0.015;
+
+        if self.started.is_none() && fingers.iter().any(|finger| finger.began) {
+            *self = Self::default();
+            self.started = Some(now);
+        }
+        self.fingers_down = fingers
+            .iter()
+            .filter(|finger| !finger.ended && !finger.cancelled)
+            .count();
+        let Some(started) = self.started else {
+            return false;
+        };
+        self.rejected |= cancelled || now.duration_since(started) > MAX_DURATION;
+        for finger in fingers {
+            self.rejected |= finger.cancelled || !finger.x.is_finite() || !finger.y.is_finite();
+            if let Some(origin) = self.origins.iter_mut().find(|origin| origin.is(finger)) {
+                self.rejected |= (finger.x - origin.x).hypot(finger.y - origin.y) > MAX_MOVEMENT
+                    || finger.began && origin.ended;
+                origin.ended |= finger.ended;
+            } else if self.origins.len() < 3 {
+                self.rejected |= !finger.began || self.origins.iter().any(|origin| origin.ended);
+                self.origins.push(finger.clone());
+            } else {
+                self.rejected = true;
+            }
+        }
+        self.three_down |= fingers.len() == 3
+            && fingers
+                .iter()
+                .all(|finger| !finger.ended && !finger.cancelled);
+        if ended
+            || fingers.is_empty()
+            || fingers
+                .iter()
+                .all(|finger| finger.ended || finger.cancelled)
+        {
+            let tapped = self.three_down && !self.rejected;
+            *self = Self::default();
+            return tapped;
+        }
+        false
+    }
+
+    fn owns_contact(&self) -> bool {
+        self.three_down && !self.rejected
     }
 }
 
@@ -130,6 +200,7 @@ pub(super) struct InputHandler {
     config: Config,
     /// The previous event's fingers, for swipe gesture detection.
     finger_position: Option<Vec<Touch>>,
+    three_finger_tap: ThreeFingerTap,
     overview_swipe: OverviewSwipe,
     /// Consume macOS wheel/momentum duplicates of a raw three-finger gesture.
     overview_scroll_owned: bool,
@@ -178,6 +249,7 @@ impl InputHandler {
             events: Some(events),
             config,
             finger_position: None,
+            three_finger_tap: ThreeFingerTap::default(),
             overview_swipe: OverviewSwipe::default(),
             overview_scroll_owned: false,
             overview_contact_active: false,
@@ -460,6 +532,7 @@ impl InputHandler {
             event_type,
             CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
         ) {
+            self.three_finger_tap = ThreeFingerTap::default();
             warn!("Tap Disabled, re-enabling");
             if let Some(port) = &self.tap_port {
                 CGEvent::tap_enable(port, true);
@@ -471,6 +544,7 @@ impl InputHandler {
             // Pass every event to macOS, including configured hotkeys and
             // strip gestures, even during the engine's shutdown interval.
             self.finger_position = None;
+            self.three_finger_tap = ThreeFingerTap::default();
             self.overview_swipe = OverviewSwipe::default();
             self.overview_scroll_owned = false;
             self.overview_contact_active = false;
@@ -481,6 +555,7 @@ impl InputHandler {
         }
 
         if crate::ecs::overview::input_is_active() {
+            self.three_finger_tap = ThreeFingerTap::default();
             if event_type == CGEventType::ScrollWheel {
                 return self.suppress_overview_wheel(event);
             }
@@ -507,10 +582,16 @@ impl InputHandler {
         };
 
         let flags = CGEvent::flags(Some(event));
-        let modifiers = get_event_modifiers(flags);
+        let mut modifiers = get_event_modifiers(flags);
 
         let result = match event_type {
             CGEventType::LeftMouseDown | CGEventType::RightMouseDown => {
+                // A physical three-finger click uses the same reveal path, but
+                // never injects Command into the event delivered to the app.
+                if self.three_finger_tap.fingers_down == 3 {
+                    modifiers |= Modifiers::CMD;
+                }
+                self.three_finger_tap.rejected = true;
                 let point = CGEvent::location(Some(event));
                 events.send(Event::MouseDown { point, modifiers })
             }
@@ -701,21 +782,19 @@ impl InputHandler {
     /// Handles swipe gesture events. Routes to horizontal `Swipe` or vertical
     /// `VerticalSwipe` based on axis dominance. Returns true to intercept the event.
     fn handle_swipe(&mut self, event: &CGEvent) -> bool {
-        const NS_EVENT_PHASE_ENDED: usize = 1 << 3; // 8
-        const NS_EVENT_PHASE_CANCELLED: usize = 1 << 4; // 16
-
         let overview_active = crate::ecs::overview::input_is_active();
         let configured = if overview_active {
             Some(3)
         } else {
             self.config.swipe_gesture_fingers()
         };
-        let Some(configured_fingers) =
-            configured.filter(|fingers| *fingers >= GESTURE_MINIMAL_FINGERS)
-        else {
+        let configured = configured.filter(|fingers| *fingers >= GESTURE_MINIMAL_FINGERS);
+        let taps_enabled = !overview_active
+            && (self.config.preserve_scroll_until_click() || configured == Some(3));
+        if configured.is_none() && !taps_enabled {
             // No valid gesture is configured, so leave native macOS gestures alone.
             return false;
-        };
+        }
 
         objc2::rc::autoreleasepool(|_| {
             let Some(ns_event) = NSEvent::eventWithCGEvent(event) else {
@@ -726,20 +805,27 @@ impl InputHandler {
                 return false;
             }
 
-            // Fingers lifted off touchpad.
+            let fingers = Touch::sample(&ns_event.allTouches());
             let phase = ns_event.phase();
-            if (phase.0 & NS_EVENT_PHASE_CANCELLED != 0 || phase.0 & NS_EVENT_PHASE_ENDED != 0)
+            let tap_owned = taps_enabled && self.handle_three_finger_tap(&fingers, phase, event);
+            let Some(configured_fingers) = configured else {
+                return tap_owned;
+            };
+
+            // Fingers lifted off touchpad.
+            if (phase.contains(NSEventPhase::Cancelled) || phase.contains(NSEventPhase::Ended))
                 && self.events.is_some()
             {
-                self.end_overview_contact(overview_active, phase.0 & NS_EVENT_PHASE_CANCELLED != 0);
+                self.end_overview_contact(overview_active, phase.contains(NSEventPhase::Cancelled));
                 if let Some(events) = &self.events {
-                    if phase.0 & NS_EVENT_PHASE_CANCELLED != 0 {
+                    if phase.contains(NSEventPhase::Cancelled) {
                         _ = events.send(Event::TouchpadDown);
                     }
                     _ = events.send(Event::TouchpadUp);
                 }
                 self.finger_position = None;
-                let consumed = self.overview_swipe.axis == OverviewAxis::Up
+                let consumed = tap_owned
+                    || self.overview_swipe.axis == OverviewAxis::Up
                     || overview_active && self.overview_scroll_owned
                     || self.overview_swipe.axis == OverviewAxis::Down
                         && self
@@ -749,7 +835,6 @@ impl InputHandler {
                 return consumed;
             }
 
-            let fingers = Touch::sample(&ns_event.allTouches());
             if fingers.iter().any(|finger| finger.began) {
                 self.last_overview_swipe = None;
             }
@@ -761,7 +846,7 @@ impl InputHandler {
                     _ = events.send(Event::TouchpadUp);
                 }
                 self.overview_swipe = OverviewSwipe::default();
-                return false;
+                return tap_owned;
             }
             if fingers.iter().any(|finger| finger.began) {
                 self.overview_swipe = OverviewSwipe::default();
@@ -811,6 +896,26 @@ impl InputHandler {
             // to prevent it from being interpreted as a scroll by the OS.
             true
         })
+    }
+
+    fn handle_three_finger_tap(
+        &mut self,
+        fingers: &[Touch],
+        phase: NSEventPhase,
+        event: &CGEvent,
+    ) -> bool {
+        let tapped = self.three_finger_tap.update(
+            fingers,
+            phase.contains(NSEventPhase::Ended),
+            phase.contains(NSEventPhase::Cancelled),
+            Instant::now(),
+        );
+        if tapped && let Some(events) = &self.events {
+            _ = events.send(Event::ThreeFingerTap {
+                point: CGEvent::location(Some(event)),
+            });
+        }
+        tapped || self.three_finger_tap.owns_contact()
     }
 
     fn handle_gesture_delta(
@@ -881,7 +986,10 @@ impl InputHandler {
             return true;
         }
         if x_sum.abs() >= y_sum.abs() {
-            if horizontal_swipe_detected(x_deltas, self.config.swipe_three_finger_paging()) {
+            if horizontal_swipe_detected(
+                x_deltas,
+                self.config.swipe_three_finger_paging() || self.config.swipe_magnetic_snapping(),
+            ) {
                 _ = events.send(Event::Swipe {
                     delta: x_sum,
                     fingers: x_deltas.len(),
@@ -1157,6 +1265,201 @@ fn paging_recognizes_tiny_three_finger_motion_without_treating_a_touch_as_a_swip
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tap_fingers(count: usize) -> Vec<Touch> {
+        (0..count)
+            .map(|_| Touch {
+                identity: objc2_foundation::NSObject::new().into(),
+                x: 0.5,
+                y: 0.5,
+                began: true,
+                ended: false,
+                cancelled: false,
+            })
+            .collect()
+    }
+
+    fn stationary(fingers: &[Touch]) -> Vec<Touch> {
+        fingers
+            .iter()
+            .cloned()
+            .map(|mut finger| {
+                finger.began = false;
+                finger
+            })
+            .collect()
+    }
+
+    #[test]
+    fn three_finger_tap_accepts_staggered_contacts_and_small_jitter_once() {
+        let now = Instant::now();
+        let fingers = tap_fingers(3);
+        let mut tap = ThreeFingerTap::default();
+        assert!(!tap.update(&fingers[..1], false, false, now));
+        let mut next = fingers.clone();
+        next[0].began = false;
+        assert!(!tap.update(&next[..2], false, false, now + Duration::from_millis(20)));
+        next[1].began = false;
+        assert!(!tap.update(&next, false, false, now + Duration::from_millis(40)));
+        assert!(tap.owns_contact());
+        next = stationary(&next);
+        next.reverse();
+        next[0].x += 0.002;
+        next[1].y -= 0.003;
+        assert!(!tap.update(&next, false, false, now + Duration::from_millis(70)));
+        next[0].ended = true;
+        assert!(!tap.update(&next, false, false, now + Duration::from_millis(90)));
+        next.remove(0);
+        next[0].ended = true;
+        assert!(!tap.update(&next, false, false, now + Duration::from_millis(100)));
+        next.remove(0);
+        next[0].ended = true;
+        assert!(tap.update(&next, true, false, now + Duration::from_millis(110)));
+        assert!(!tap.update(&[], true, false, now + Duration::from_millis(120)));
+        assert!(!tap.owns_contact());
+    }
+
+    #[test]
+    fn three_finger_tap_rejects_other_counts_holds_cancellation_and_release_motion() {
+        let now = Instant::now();
+        for count in [1, 2, 4] {
+            let mut tap = ThreeFingerTap::default();
+            tap.update(&tap_fingers(count), false, false, now);
+            assert!(!tap.update(&[], true, false, now + Duration::from_millis(100)));
+        }
+        for (duration, cancelled, movement) in [
+            (301, false, 0.0),
+            (100, true, 0.0),
+            (100, false, 0.02),
+            (100, false, f64::NAN),
+        ] {
+            let fingers = tap_fingers(3);
+            let mut tap = ThreeFingerTap::default();
+            tap.update(&fingers, false, false, now);
+            let mut release = stationary(&fingers);
+            release[0].y += movement;
+            assert!(!tap.update(
+                &release,
+                true,
+                cancelled,
+                now + Duration::from_millis(duration)
+            ));
+        }
+    }
+
+    #[test]
+    fn three_finger_swipe_cannot_become_a_tap_by_returning_to_its_origin() {
+        let now = Instant::now();
+        let fingers = tap_fingers(3);
+        let mut tap = ThreeFingerTap::default();
+        tap.update(&fingers, false, false, now);
+        for step in 1_u32..=20 {
+            let mut moved = stationary(&fingers);
+            moved[0].x += f64::from(step) * 0.001;
+            tap.update(
+                &moved,
+                false,
+                false,
+                now + Duration::from_millis(u64::from(step)),
+            );
+        }
+        assert!(!tap.update(
+            &stationary(&fingers),
+            true,
+            false,
+            now + Duration::from_millis(100)
+        ));
+    }
+
+    #[test]
+    fn replacing_a_finger_or_adding_a_fourth_rejects_the_complete_sequence() {
+        let now = Instant::now();
+        for replacement in [false, true] {
+            let fingers = tap_fingers(3);
+            let mut tap = ThreeFingerTap::default();
+            tap.update(&fingers, false, false, now);
+            let mut next = stationary(&fingers);
+            if replacement {
+                next.remove(0);
+            }
+            next.extend(tap_fingers(1));
+            tap.update(&next, false, false, now + Duration::from_millis(50));
+            assert!(!tap.update(&[], true, false, now + Duration::from_millis(100)));
+        }
+    }
+
+    #[test]
+    fn physical_three_finger_click_reveals_without_a_second_tap_or_native_command_flag() {
+        let (sender, receiver) = EventSender::new();
+        let mut handler = InputHandler::new(sender, Config::default());
+        let event = CGEvent::new(None).expect("local event, never posted");
+        CGEvent::set_flags(Some(&event), CGEventFlags(0));
+        // An ordinary click must not prevent the next tap from being recognized.
+        assert!(!handler.input_handler(CGEventType::LeftMouseDown, &event));
+        assert!(
+            matches!(receiver.try_recv(), Ok(Event::MouseDown { modifiers, .. }) if modifiers.is_empty())
+        );
+        let fingers = tap_fingers(3);
+        let now = Instant::now();
+        handler.three_finger_tap.update(&fingers, false, false, now);
+        assert!(!handler.input_handler(CGEventType::LeftMouseDown, &event));
+        assert!(
+            matches!(receiver.try_recv(), Ok(Event::MouseDown { modifiers, .. }) if modifiers.intersects(Modifiers::CMD))
+        );
+        assert_eq!(CGEvent::flags(Some(&event)), CGEventFlags(0));
+        assert!(!handler.three_finger_tap.update(
+            &[],
+            true,
+            false,
+            now + Duration::from_millis(100)
+        ));
+        handler
+            .three_finger_tap
+            .update(&tap_fingers(3), false, false, now);
+        assert!(handler.three_finger_tap.update(
+            &[],
+            true,
+            false,
+            now + Duration::from_millis(100)
+        ));
+    }
+
+    #[test]
+    fn physical_three_finger_click_can_finish_a_swipe_without_relanding() {
+        let (sender, receiver) = EventSender::new();
+        let mut handler = InputHandler::new(sender, Config::default());
+        let event = CGEvent::new(None).expect("local event, never posted");
+        let fingers = tap_fingers(3);
+        let now = Instant::now();
+        handler.three_finger_tap.update(&fingers, false, false, now);
+        let mut moved = stationary(&fingers);
+        for finger in &mut moved {
+            finger.x += 0.1;
+        }
+        handler
+            .three_finger_tap
+            .update(&moved, false, false, now + Duration::from_secs(1));
+        assert!(
+            !handler.three_finger_tap.owns_contact(),
+            "this is no longer a tap"
+        );
+        assert!(!handler.input_handler(CGEventType::LeftMouseDown, &event));
+        assert!(
+            matches!(receiver.try_recv(), Ok(Event::MouseDown { modifiers, .. }) if modifiers.intersects(Modifiers::CMD))
+        );
+    }
+
+    #[test]
+    fn magnetic_mode_receives_precise_motion_with_paging_off() {
+        let (sender, receiver) = EventSender::new();
+        let config = Config::try_from("[swipe]\nmagnetic_snapping = true\nthree_finger_paging = false\n[swipe.gesture]\nfingers_count = 3\n").unwrap();
+        let mut handler = InputHandler::new(sender, config);
+        assert!(handler.handle_gesture_delta(&[0.00001; 3], &[0.0; 3], 3, false));
+        assert!(
+            matches!(receiver.try_recv().unwrap(), Event::Swipe { delta, fingers: 3 } if delta > 0.0)
+        );
+        assert!(receiver.try_recv().is_err());
+    }
 
     #[test]
     fn overview_keeps_two_finger_scrolls_and_consumes_three_finger_wheel_duplicates() {

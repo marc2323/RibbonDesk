@@ -164,6 +164,10 @@ pub enum Event {
         point: CGPoint,
         modifiers: Modifiers,
     },
+    /// A quick stationary three-finger tap reveals the window under the pointer.
+    ThreeFingerTap {
+        point: CGPoint,
+    },
     /// A mouse drag event has occurred.
     MouseDragged {
         point: CGPoint,
@@ -345,6 +349,7 @@ impl Event {
             self,
             Event::MouseDown { .. }
                 | Event::MouseUp { .. }
+                | Event::ThreeFingerTap { .. }
                 | Event::MouseDragged { .. }
                 | Event::MouseMoved { .. }
                 | Event::Swipe { .. }

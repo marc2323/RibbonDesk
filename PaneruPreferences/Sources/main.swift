@@ -166,6 +166,9 @@ final class SettingsModel: ObservableObject {
     @Published var snapHalfWidth: Bool { didSet { preferenceChanged() } }
     @Published var snapBack: Bool { didSet { preferenceChanged() } }
     @Published var snapExitDistance: Double { didSet { preferenceChanged() } }
+    @Published var magneticSnapping: Bool { didSet { preferenceChanged() } }
+    @Published var magnetStrength: Double { didSet { preferenceChanged() } }
+    @Published var magnetRange: Double { didSet { preferenceChanged() } }
     @Published var threeFingerPaging: Bool { didSet { preferenceChanged() } }
     @Published var infiniteRibbon: Bool { didSet { preferenceChanged() } }
     @Published var overviewAnimation: Bool { didSet { preferenceChanged() } }
@@ -258,6 +261,9 @@ final class SettingsModel: ObservableObject {
         snapBack = preferences.snapBack
         snapExitDistance = preferences.snapExitDistance
         threeFingerPaging = preferences.threeFingerPaging
+        magneticSnapping = preferences.magneticSnapping
+        magnetStrength = preferences.magnetStrength
+        magnetRange = preferences.magnetRange
         infiniteRibbon = preferences.infiniteRibbon
         overviewAnimation = preferences.overviewAnimation
         gap = Double(preferences.gap)
@@ -292,7 +298,9 @@ final class SettingsModel: ObservableObject {
                     snapFullWidth: snapFullWidth, snapHalfWidth: snapHalfWidth, snapBack: snapBack,
                     snapExitDistance: (snapExitDistance * 100).rounded() / 100,
                     threeFingerPaging: threeFingerPaging, overviewAnimation: overviewAnimation,
-                    infiniteRibbon: infiniteRibbon).validated
+                    infiniteRibbon: infiniteRibbon, magneticSnapping: magneticSnapping,
+                    magnetStrength: (magnetStrength * 100).rounded() / 100,
+                    magnetRange: (magnetRange * 100).rounded() / 100).validated
     }
 
     var borderColor: Color {
@@ -354,6 +362,9 @@ final class SettingsModel: ObservableObject {
         snapBack = value.snapBack
         snapExitDistance = value.snapExitDistance
         threeFingerPaging = value.threeFingerPaging
+        magneticSnapping = value.magneticSnapping
+        magnetStrength = value.magnetStrength
+        magnetRange = value.magnetRange
         infiniteRibbon = value.infiniteRibbon
         overviewAnimation = value.overviewAnimation
         gap = Double(value.gap)

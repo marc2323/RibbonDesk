@@ -115,22 +115,50 @@ you lift them. It includes fixed-width apps and can align either edge of a windo
 Speed, swipe distance, and the free-scrolling thresholds do not skip or prevent
 that step. **Snap animation** controls how quickly it settles.
 
-Turn paging off for free scrolling. Holding **Control–Option** while scrolling
+Enable **Magnetic snapping** to try momentum-driven edge catches, or turn paging off for free scrolling. Holding **Control–Option** while scrolling
 also uses free-scrolling behavior, regardless of the paging toggle.
 
 | Setting | Range | Effect |
 | --- | --- | --- |
 | **Scroll speed** | 0.20–1.50× | How far the ribbon moves while your fingers are down. |
-| **Momentum** | 0–3× | How far it coasts after release. Zero stops immediately and disables free-scroll snapping. |
+| **Momentum** | 0–3× | How far it coasts after release. Zero stops coasting; magnets can still settle nearby edges. Classic flick snapping is disabled. |
 | **Momentum decay** | 1–100 | How quickly a coast fades. Higher values stop sooner without changing the initial flick speed. |
 
 Touch again to stop a fling, or pause before lifting to stop in place. Ordinary
 hover, focus notifications, and clicks keep a manually chosen viewport.
 **Command-click** reveals a managed window with a short animation on mouse-up.
+You can also **tap with three fingers** with the pointer over the window to focus
+and reveal it. A quick stationary tap snaps; swipes and long holds keep their
+scrolling behavior. A physical three-finger click also reveals on mouse-up.
 Navigation hotkeys reveal their target; J/K follows a moved window and stops
 an active coast. Another manual scroll restores the viewport hold.
 
 ## Snapping
+
+**Magnetic snapping** is an experimental, opt-in alternative. It places a small
+capture zone at both edges of every window column, including fixed and oversized
+widths. Your fingers move the ribbon directly. After lift, an edge catches when
+it is close enough and motion has slowed enough; faster motion passes it and
+continues coasting. A medium flick can catch the next edge while a harder flick
+skips it. A slow release between capture zones stays where it lands.
+
+Magnetic mode replaces the one-window limit even when **Three-finger paging**
+is saved as on. **Scroll speed**, **Momentum**, and **Momentum decay** apply to
+both three-finger swipes and Control–Option scrolling. **Snap animation** controls
+settling. Turn magnetic mode off to restore your saved paging and classic settings.
+Overview keeps its existing free panning.
+
+| Magnetic setting | Range | Effect |
+| --- | --- | --- |
+| **Magnet strength** | 0.2–6 screens/second | Maximum speed an edge can catch at its center. Lower makes skipping easier; higher catches faster swipes. Default: 1.8. |
+| **Magnet range** | 3–40% of screen width | How close an edge must be. Attraction weakens toward the edge of the zone. Default: 20%. |
+
+Start with strength **1.8**, range **20%**, momentum **1×**, and decay **4**.
+For easier skipping, lower strength or increase momentum. For more forgiving
+placement, increase range. Save separate feel presets to compare adjustments.
+A new touch interrupts settling, and navigation shortcuts still reveal their target.
+
+The classic controls below apply with magnetic mode off.
 
 Free scrolling can finish by snapping a sufficiently fast flick to a window
 alignment. The projected coast must satisfy both **Flick threshold** and
@@ -156,7 +184,7 @@ without restarting the engine.
 ## Feel presets
 
 Enter a name and choose **Save Current** to store scrolling and snapping together,
-including the paging toggle. Reuse a name to update it. Choose a saved preset and
+including paging, magnetic mode, magnet strength and range. Reuse a name to update it. Choose a saved preset and
 **Load** to restore it, or use the trash button to delete it.
 
 Presets exclude Desktop policy, login registration, activation, appearance,

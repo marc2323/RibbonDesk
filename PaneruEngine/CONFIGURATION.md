@@ -23,7 +23,7 @@ General behavior settings for the window manager.
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `focus_follows_mouse` | Boolean | `true` | If enabled, the window under the mouse cursor will automatically gain focus. |
-| `preserve_scroll_until_click` | Boolean | `false` | Keep a manually scrolled viewport through hover, external focus changes, and ordinary clicks. Command-click reveals a managed window on mouse-up with a quick animation. Explicit keyboard focus navigation and window swaps reveal their target, taking over from scrolling. Enabled by the native companion's configuration. |
+| `preserve_scroll_until_click` | Boolean | `false` | Keep a manually scrolled viewport through hover, external focus changes, and ordinary clicks. Command-click reveals a managed window on mouse-up with a quick animation. A quick stationary three-finger tap focuses and reveals the managed window under the pointer; physical three-finger clicks also reveal on mouse-up. Three-finger taps are enabled by this option or a configured three-finger swipe, and leave Overview's input unchanged. Explicit keyboard focus navigation and window swaps reveal their target, taking over from scrolling. Enabled by the native companion's configuration. |
 | `default_floating` | Boolean | `false` | New windows without an explicit `floating` rule start floating. RibbonDesk enables this; saved startup sessions retain their layout. App rules can use `floating = false` to add an app's new windows automatically. |
 | `disabled_spaces` | Array (native Space IDs) | `[]` | Exclude these native macOS desktop Spaces from window discovery and pass global input through while one is active. The companion stores Space identities and resolves these IDs before starting the engine. |
 | `mouse_follows_focus` | Boolean | `true` | If enabled, the mouse cursor will warp to the center of the focused window when focus changes via keyboard. |
@@ -71,6 +71,9 @@ Configure trackpad gestures and scroll-wheel window sliding.
 | `momentum` | Float (0.0–3.0) | `1.0` | Coast duration multiplier. Zero stops at release and disables flick snapping. |
 | `snap_speed` | Float (0.0–3.0) | `0.0` | Minimum release speed in viewport widths per second to trigger a forward snap. Zero disables flick snapping. |
 | `snap_visible` | Float (0.25–0.95) | `0.55` | Fraction of the destination column that the projected resting position must reveal before snapping. |
+| `magnetic_snapping` | Boolean | `false` | Experimental local edge capture. Replaces flick snapping, auto-centering and the one-page gesture limit while enabled. |
+| `magnet_strength` | Float (0.2–6.0) | `1.8` | Maximum speed a magnet catches at its center, in viewport widths/second. |
+| `magnet_range` | Float (0.03–0.4) | `0.2` | Capture radius as a fraction of viewport width. |
 | `three_finger_paging` | Boolean | `false` | Every horizontal three-finger gesture advances one window alignment, including nonstandard widths. Enabled by the settings companion. |
 | `infinite_ribbon` | Boolean | `false` | Join both ends for horizontal scrolling and paging without changing column order. Overrides horizontal edge clamps for ribbons with at least two columns. |
 | `snap_animation` | Float (0.2–4.0) | `1.0` | Snap spring speed multiplier; higher settles faster, independently of the flick threshold. |
@@ -86,7 +89,24 @@ velocity. Modifier scrolling uses the same adjustable coast and consumes the nat
 macOS momentum tail to avoid applying inertia twice. Discrete wheels use a short
 input timeout to detect release.
 
-With `three_finger_paging` enabled, every nonzero horizontal three-finger gesture
+With `magnetic_snapping` enabled, both edges of every column act as local magnets
+at the corresponding viewport edges. Finger-down movement remains direct. After
+release, capture occurs inside `magnet_range` when velocity squared is below
+`magnet_strength² × (1 − (distance/range)²)`. Fast motion passes through; ordinary
+inertia continues until another edge can catch it. Capture uses the existing
+critically damped `snap_animation` spring and can return to a nearby edge.
+Momentum zero still permits a local catch. A short inaccurate drag outside every
+capture zone stays between edges. The swept frame segment is checked to avoid
+stepping over a narrow magnet, and integration remains capped after stalls.
+
+This mode takes precedence over `three_finger_paging`, `snap_speed`, `snap_visible`,
+`snap_full_width`, `snap_half_width`, `snap_back`, `snap_exit_distance`, and
+`auto_center`; their saved values are preserved. Sensitivity, momentum, decay,
+gesture direction, bounds and infinite-ribbon geometry still apply. No extra timer,
+platform query or allocation is added to snap selection, and the scroll component
+is removed at rest. Overview retains its separate panning behavior.
+
+With `three_finger_paging` enabled and magnetic mode off, every nonzero horizontal three-finger gesture
 commits exactly one adjacent alignment on lift, including slow gestures and pauses.
 Dragging is bounded to that one step; net travel sets the direction after reversals.
 Paging recognizes every column width, including apps with fixed or minimum sizes.

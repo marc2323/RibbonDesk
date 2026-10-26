@@ -43,8 +43,18 @@ pub struct SwipeOptions {
     /// Fraction of the viewport. Default: 0.12. Range: 0–0.5.
     pub snap_exit_distance: Option<f64>,
 
+    /// Local edge magnets replace flick snapping and the one-page gesture cap.
+    /// Default: false (experimental, opt-in).
+    pub magnetic_snapping: Option<bool>,
+    /// Maximum speed an edge magnet can catch, in viewport widths/second.
+    /// Default: 1.8. Range: 0.2–6.0.
+    pub magnet_strength: Option<f64>,
+    /// Attraction radius as a fraction of the viewport. Default: 0.2.
+    /// Range: 0.03–0.4. All column widths have magnets at both edges.
+    pub magnet_range: Option<f64>,
+
     /// Every horizontal three-finger gesture advances one full/half-width snap.
-    /// Overrides free-scroll tuning for those gestures only. Default: false.
+    /// Overrides free-scroll tuning unless magnetic snapping is on. Default: false.
     pub three_finger_paging: Option<bool>,
 
     /// Join the ribbon ends for horizontal scrolling and paging. Default: false.

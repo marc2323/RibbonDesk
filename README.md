@@ -58,8 +58,8 @@ each swipe advances one window alignment; turn off **Three-finger paging** for
 free scrolling. Ordinary two-finger scrolling continues to scroll your apps.
 
 Hovering and ordinary clicks keep the ribbon where you left it. **Command-click
-a managed window** to bring it fully into view. Keyboard navigation also reveals
-the selected window.
+a managed window**, or **tap with three fingers** while the pointer is over it,
+to bring it fully into view. Keyboard navigation also reveals the selected window.
 
 ## Ribbon Overview
 

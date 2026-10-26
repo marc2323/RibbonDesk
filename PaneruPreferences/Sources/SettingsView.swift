@@ -98,15 +98,18 @@ struct SettingsView: View {
         return section("Scrolling") {
             toggleRow("Infinite ribbon", detail: "Loop both ends", value: $model.infiniteRibbon)
                 .help("Keep scrolling past the last window to reach the first, or past the first to reach the last, in the ribbon and Overview.")
-            toggleRow("Three-finger paging", detail: "One snap", value: $model.threeFingerPaging)
-            caption("On: every three-finger swipe advances one window alignment, including apps with fixed widths. Only Snap animation applies; other sliders still tune Control–Option scrolling. Off restores free scrolling.")
+            toggleRow("Three-finger paging", detail: model.magneticSnapping ? "Magnets active" : "One snap", value: $model.threeFingerPaging)
+                .disabled(model.magneticSnapping)
+            caption(model.magneticSnapping
+                    ? "Magnets replace the one-window limit. Scroll speed, momentum and decay apply to every horizontal swipe."
+                    : "On: each three-finger swipe advances one alignment. Only Snap animation applies. Off restores free scrolling and the sliders below.")
                 .padding(.bottom, 5)
             SettingsSliderRow("Scroll speed", value: $model.speed, range: 0.2...1.5, step: 0.05,
                               readout: String(format: "%.2f×", settings.speed),
                               help: "Free-scroll movement while your fingers are down. 0.20× gives the finest control; 1.50× moves farthest for the same swipe.")
             SettingsSliderRow("Momentum", value: $model.momentum, range: 0...3, step: 0.1,
                               readout: settings.momentum == 0 ? "Off" : String(format: "%.2f×", settings.momentum),
-                              help: "Free-scroll coasting after you lift your fingers. 0 stops immediately and disables free-scroll snapping; 3× gives the longest coast at the same decay.")
+                              help: "Coasting after finger lift. 0 stops the coast; nearby magnets can still catch an edge. 3× gives the longest coast at the same decay. Without magnets, 0 also disables flick snapping.")
             SettingsSliderRow("Momentum decay", value: $model.momentumDecay, range: 1...100, step: 1,
                               readout: String(format: "%.2f", settings.momentumDecay),
                               help: "How quickly coasting fades. 1 lets momentum linger; 100 brakes it fastest. The initial flick speed stays the same.", logarithmic: true)
@@ -139,26 +142,40 @@ struct SettingsView: View {
     private var snapping: some View {
         let settings = model.draft
         return section("Snapping") {
-            toggleRow("Full-width windows", detail: "", value: $model.snapFullWidth)
-            toggleRow("Half-width windows", detail: "Either edge", value: $model.snapHalfWidth)
-            SettingsSliderRow("Flick threshold", value: $model.snapSpeed, range: 0...3, step: 0.1,
-                              readout: settings.snapSpeed == 0 ? "Off" : String(format: "%.2f/s", settings.snapSpeed),
-                              help: "Minimum speed for a forward snap (screens/second). Near 0 allows gentle flicks; 3 requires a fast flick. At 0, free-scroll snapping is off.")
-            SettingsSliderRow("Snap visibility", value: $model.snapVisible, range: 0.25...0.95, step: 0.05,
-                              readout: String(format: "%.0f%%", settings.snapVisible * 100),
-                              help: "How much of the destination window your coast is predicted to reveal. 25% snaps with less travel; 95% needs almost the whole window revealed.")
+            toggleRow("Magnetic snapping", detail: "Experimental", value: $model.magneticSnapping)
+                .help("Try magnets at both edges of every window. This replaces one-window paging and the classic flick thresholds. Turn off to restore your previous snapping settings.")
+            if model.magneticSnapping {
+                caption("Slow, precise swipes catch nearby edges at lift. Fast flicks pass them and keep coasting. All window widths participate.")
+                SettingsSliderRow("Magnet strength", value: $model.magnetStrength, range: 0.2...6, step: 0.1,
+                                  readout: String(format: "%.2f/s", settings.magnetStrength),
+                                  help: "Maximum speed a magnet can catch (screens/second), strongest at the edge. Lower values make skipping easier; higher values catch faster swipes.")
+                SettingsSliderRow("Magnet range", value: $model.magnetRange, range: 0.03...0.4, step: 0.01,
+                                  readout: String(format: "%.0f%%", settings.magnetRange * 100),
+                                  help: "Distance from an alignment where attraction begins, as a percentage of screen width. 3% needs precise placement; 40% catches from farther away. Attraction weakens with distance.")
+            } else {
+                toggleRow("Full-width windows", detail: "", value: $model.snapFullWidth)
+                toggleRow("Half-width windows", detail: "Either edge", value: $model.snapHalfWidth)
+                SettingsSliderRow("Flick threshold", value: $model.snapSpeed, range: 0...3, step: 0.1,
+                                  readout: settings.snapSpeed == 0 ? "Off" : String(format: "%.2f/s", settings.snapSpeed),
+                                  help: "Minimum speed for a forward snap (screens/second). Near 0 allows gentle flicks; 3 requires a fast flick. At 0, free-scroll snapping is off.")
+                SettingsSliderRow("Snap visibility", value: $model.snapVisible, range: 0.25...0.95, step: 0.05,
+                                  readout: String(format: "%.0f%%", settings.snapVisible * 100),
+                                  help: "How much of the destination window your coast is predicted to reveal. 25% snaps with less travel; 95% needs almost the whole window revealed.")
+            }
             SettingsSliderRow("Snap animation", value: $model.snapAnimation, range: 0.2...4, step: 0.1,
                               readout: String(format: "%.2f×", settings.snapAnimation),
-                              help: "How quickly a triggered snap settles. 0.20× glides slowly into place; 4× settles fastest. The flick needed to trigger it stays the same.")
-            Divider().padding(.vertical, 4)
-            toggleRow("Snap back", detail: "Return on small swipe", value: $model.snapBack)
-                .help("Off keeps your swipe progress: snapping never pulls backward. On lets small swipes return to their starting alignment.")
-            SettingsSliderRow("Exit distance", value: $model.snapExitDistance, range: 0...0.5, step: 0.01,
-                              readout: String(format: "%.0f%%", settings.snapExitDistance * 100),
-                              help: "Used when Snap back is on. 0% removes the return zone; 50% requires half a screen of predicted travel to escape. A faster swipe or longer drag helps.")
-                .disabled(!model.snapBack)
-            caption(model.snapBack ? "Small swipes may return until they clear the exit distance." : "Snap back is off: small swipes keep their progress.")
-                .padding(.top, 2)
+                              help: "How quickly a triggered snap settles. 0.20× glides slowly into place; 4× settles fastest. Magnet capture and flick thresholds stay the same.")
+            if !model.magneticSnapping {
+                Divider().padding(.vertical, 4)
+                toggleRow("Snap back", detail: "Return on small swipe", value: $model.snapBack)
+                    .help("Off keeps your swipe progress: snapping never pulls backward. On lets small swipes return to their starting alignment.")
+                SettingsSliderRow("Exit distance", value: $model.snapExitDistance, range: 0...0.5, step: 0.01,
+                                  readout: String(format: "%.0f%%", settings.snapExitDistance * 100),
+                                  help: "Used when Snap back is on. 0% removes the return zone; 50% requires half a screen of predicted travel to escape. A faster swipe or longer drag helps.")
+                    .disabled(!model.snapBack)
+                caption(model.snapBack ? "Small swipes may return until they clear the exit distance." : "Snap back is off: small swipes keep their progress.")
+                    .padding(.top, 2)
+            }
         }
     }
 
