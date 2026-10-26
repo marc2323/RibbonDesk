@@ -77,8 +77,8 @@ Configure trackpad gestures and scroll-wheel window sliding.
 | `three_finger_paging` | Boolean | `false` | Every horizontal three-finger gesture advances one window alignment, including nonstandard widths. Enabled by the settings companion. |
 | `infinite_ribbon` | Boolean | `false` | Join both ends for horizontal scrolling, paging, and keyboard focus without changing column order. Horizontal focus wraps between the first and last columns, preserving the stack row when possible. Overrides horizontal edge clamps for ribbons with at least two columns. |
 | `snap_animation` | Float (0.2–4.0) | `1.0` | Snap spring speed multiplier; higher settles faster, independently of the flick threshold. |
-| `snap_full_width` | Boolean | `true` | Snap columns within 90–102% of the viewport width to the leading edge. |
-| `snap_half_width` | Boolean | `false` | Snap columns within 45–55% of viewport width to either edge. Enabled by the settings companion. |
+| `snap_full_width` | Boolean | `true` | Legacy compatibility key; no longer filters eligible column widths. |
+| `snap_half_width` | Boolean | `false` | Legacy compatibility key; no longer filters eligible column widths. |
 | `snap_back` | Boolean | `false` | Permit snapping behind current swipe progress, including returning to the starting alignment. |
 | `snap_exit_distance` | Float (0.0–0.5) | `0.12` | With snap_back enabled, projected distance needed to escape the starting alignment, as a fraction of viewport width. Zero removes its return zone. |
 | `continuous` | Boolean | `true` | If `true`, the windows are allowed to fully move across the desktop, potentially exposing the empty desktop space. If `false`, the window strip will not move further than the left or right most window. This also affects the windows during keyboard focus - if `false` the left or right most windows will snap to the edge of display. |
@@ -88,6 +88,14 @@ coast. A new touch stops it; pausing for 100 ms before lifting cancels the relea
 velocity. Modifier scrolling uses the same adjustable coast and consumes the native
 macOS momentum tail to avoid applying inertia twice. Discrete wheels use a short
 input timeout to detect release.
+
+Every snapping mode uses both edges of every Ribbon column, including custom,
+fixed, minimum-size, narrow, and oversized windows. A full-width column has one
+alignment, allowing a two-pixel rounding tolerance. Floating windows are excluded
+because they do not belong to the Ribbon. Classic flick snapping still obeys its
+speed and projected-visibility thresholds; zero `snap_speed` or `momentum`
+disables it. The legacy size-filter keys remain readable for compatibility but
+do not restrict snapping.
 
 With `magnetic_snapping` enabled, both edges of every column act as local magnets
 at the corresponding viewport edges. Finger-down movement remains direct. After
@@ -100,8 +108,8 @@ capture zone stays between edges. The swept frame segment is checked to avoid
 stepping over a narrow magnet, and integration remains capped after stalls.
 
 This mode takes precedence over `three_finger_paging`, `snap_speed`, `snap_visible`,
-`snap_full_width`, `snap_half_width`, `snap_back`, `snap_exit_distance`, and
-`auto_center`; their saved values are preserved. Sensitivity, momentum, decay,
+`snap_back`, `snap_exit_distance`, and `auto_center`; their saved values are
+preserved. Sensitivity, momentum, decay,
 gesture direction, bounds and infinite-ribbon geometry still apply. No extra timer,
 platform query or allocation is added to snap selection, and the scroll component
 is removed at rest. Overview retains its separate panning behavior.

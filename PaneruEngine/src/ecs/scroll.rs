@@ -414,7 +414,7 @@ fn apply_swipe_paging(
     let target = snap_candidates(layout, &windows, &viewport, &config, scroll.gesture_origin)
         .filter_map(|candidate| {
             let (leading, column_width, trailing_alignment) =
-                snap_column_geometry(candidate.entity, &windows, &viewport, &config, true)?;
+                snap_column_geometry(candidate.entity, &windows, &viewport)?;
             if candidate.trailing && !trailing_alignment {
                 return None;
             }
@@ -457,7 +457,7 @@ fn apply_swipe_paging(
 }
 
 /// Select a destination using the projected resting point, so a brisk flick
-/// can finish revealing a full- or half-width window but a careful drag stays put.
+/// can finish revealing a Ribbon window while a careful drag stays put.
 fn apply_flick_snap(
     mut strip: ScrollingStrip,
     active_display: ActiveDisplay,
@@ -482,8 +482,7 @@ fn apply_flick_snap(
     let direction = swipe_direction(&config);
     let projected = scroll.position
         + scroll.velocity * direction * width * momentum / config.swipe_deceleration();
-    let column_geometry =
-        |entity| snap_column_geometry(entity, &windows, &viewport, &config, paging || magnetic);
+    let column_geometry = |entity| snap_column_geometry(entity, &windows, &viewport);
     if magnetic && scroll.snap_target.is_none() {
         scroll.snap_target = magnetic_target(layout, &windows, &viewport, &config, scroll, &time);
         if scroll.snap_target.is_some() && momentum == 0.0 {
@@ -609,7 +608,7 @@ fn magnetic_target(
     snap_candidates(layout, windows, viewport, config, scroll.position)
         .filter_map(|candidate| {
             let (leading, column_width, trailing) =
-                snap_column_geometry(candidate.entity, windows, viewport, config, true)?;
+                snap_column_geometry(candidate.entity, windows, viewport)?;
             if candidate.trailing && !trailing {
                 return None;
             }
@@ -694,27 +693,19 @@ fn snap_column_geometry(
     entity: Entity,
     windows: &Windows,
     viewport: &IRect,
-    config: &Config,
-    paging: bool,
 ) -> Option<(f64, f64, bool)> {
     let frame = windows.moving_frame(entity)?;
+    if frame.width() <= 0 || viewport.width() <= 0 {
+        return None;
+    }
     let x = windows.layout_position(entity)?.x;
     let width = f64::from(viewport.width());
     let column_width = f64::from(frame.width());
     let leading = f64::from(viewport.min.x - x);
-    // Layout slots include the gap. Native fullscreen is never a column.
-    if paging {
-        // Apps can enforce widths between presets (for example Tailscale's
-        // minimum width). Every column must remain reachable by paging, with
-        // both edges available for narrower and oversized windows. Ignore
-        // pixel-rounding differences so full-width columns keep a single stop.
-        return Some((leading, column_width, (column_width - width).abs() > 2.0));
-    }
-    let full =
-        config.swipe_snap_full_width() && (width * 0.9..=width * 1.02).contains(&column_width);
-    let half =
-        config.swipe_snap_half_width() && (width * 0.45..=width * 0.55).contains(&column_width);
-    (full || half).then_some((leading, column_width, half))
+    // Candidates come only from Ribbon columns, including fixed/minimum-size
+    // apps. Every width gets both edges in all snapping modes. Ignore pixel
+    // rounding around a full-width column so it keeps a single stop.
+    Some((leading, column_width, (column_width - width).abs() > 2.0))
 }
 
 fn advance_snap_animation(

@@ -170,6 +170,140 @@ fn momentum_tracks_release_speed_and_slider_without_extra_motion_under_fingers()
 }
 
 #[test]
+fn classic_flick_snaps_every_ribbon_width_even_with_legacy_size_filters_off() {
+    for ratio in [0.2, 0.35, 0.65, 0.8, 1.3, 1.8] {
+        for reversed in [false, true] {
+            let mut h = harness_with_tuning(
+                1.0,
+                0.1,
+                0.55,
+                Some(ratio),
+                reversed,
+                "snap_full_width = false\nsnap_half_width = false",
+            );
+            let order = columns(&mut h);
+            let delta = ratio * if reversed { -0.06 } else { 0.06 };
+            frame(
+                &mut h,
+                [Event::TouchpadDown, swipe(delta), Event::TouchpadUp],
+            );
+            let world = h.world();
+            let target = world
+                .query::<&Scrolling>()
+                .single(world)
+                .expect("active snap")
+                .snap_target
+                .expect("custom width must be eligible");
+            assert!(order.contains(&target.entity));
+            assert!(settled(&mut h) < 0);
+            let aligned = order.iter().any(|entity| {
+                let x = window_x(&mut h, *entity);
+                let world = h.world();
+                let width = world
+                    .get::<crate::ecs::Bounds>(*entity)
+                    .expect("column bounds")
+                    .x;
+                x == 0 || x + width == TEST_DISPLAY_WIDTH
+            });
+            assert!(aligned, "width ratio {ratio} must align an edge");
+            assert_eq!(columns(&mut h), order);
+        }
+    }
+}
+
+#[test]
+fn classic_custom_width_flicks_can_align_both_edges_in_either_direction() {
+    for reversed in [false, true] {
+        let mut h = harness_with_tuning(1.0, 0.8, 0.55, Some(0.65), reversed, "");
+        let sign = if reversed { -1.0 } else { 1.0 };
+        let width = round_px(f64::from(TEST_DISPLAY_WIDTH) * 0.65);
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(0.04 * sign), Event::TouchpadUp],
+        );
+        assert_eq!(settled(&mut h), -width, "leading edge");
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(-0.022 * sign), Event::TouchpadUp],
+        );
+        assert_eq!(
+            settled(&mut h),
+            TEST_DISPLAY_WIDTH - 2 * width,
+            "trailing edge"
+        );
+    }
+}
+
+#[test]
+fn classic_custom_width_snaps_across_both_sides_of_the_infinite_seam() {
+    for reversed in [false, true] {
+        let mut h = harness_with_tuning(
+            1.0,
+            0.8,
+            0.55,
+            Some(0.65),
+            reversed,
+            "infinite_ribbon = true",
+        );
+        let order = columns(&mut h);
+        h.run(vec![Event::Command {
+            command: Command::Window(Operation::Focus(Direction::Last)),
+        }]);
+        let delta = if reversed { -0.04 } else { 0.04 };
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(delta), Event::TouchpadUp],
+        );
+        settled(&mut h);
+        assert_eq!(window_x(&mut h, order[0]), 0);
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(-delta), Event::TouchpadUp],
+        );
+        settled(&mut h);
+        assert_eq!(window_x(&mut h, order[11]), 0);
+        assert_eq!(columns(&mut h), order);
+    }
+}
+
+#[test]
+fn classic_snapping_excludes_floating_windows_from_its_candidates() {
+    let mut h = harness_with_tuning(1.0, 0.8, 0.55, Some(0.65), false, "");
+    let floating = columns(&mut h)[0];
+    h.run(vec![Event::Command {
+        command: Command::Window(Operation::Manage),
+    }]);
+    let order = columns(&mut h);
+    assert!(!order.contains(&floating));
+    let before = h
+        .world()
+        .get::<crate::manager::Window>(floating)
+        .expect("floating window")
+        .frame();
+    frame(
+        &mut h,
+        [Event::TouchpadDown, swipe(0.04), Event::TouchpadUp],
+    );
+    let world = h.world();
+    let target = world
+        .query::<&Scrolling>()
+        .single(world)
+        .expect("active snap")
+        .snap_target
+        .expect("Ribbon target");
+    assert!(order.contains(&target.entity));
+    assert_ne!(target.entity, floating);
+    settled(&mut h);
+    assert_eq!(
+        h.world()
+            .get::<crate::manager::Window>(floating)
+            .expect("floating window")
+            .frame(),
+        before
+    );
+}
+
+#[test]
 fn fast_flick_snaps_full_width_columns_in_either_direction_and_keeps_the_hold() {
     for reversed in [false, true] {
         let mut h = harness(1.0, 0.8, 0.55, true, reversed);
@@ -261,23 +395,25 @@ fn touching_again_and_pausing_before_release_cancel_a_flick() {
 }
 
 #[test]
-fn snap_is_opt_out_and_arbitrary_small_windows_still_coast_freely() {
-    for (momentum, speed, full_width) in [(0.0, 0.8, true), (1.0, 0.0, true), (1.0, 0.8, false)] {
-        let mut h = harness(momentum, speed, 0.55, full_width, false);
-        frame(
-            &mut h,
-            [Event::TouchpadDown, swipe(0.06), Event::TouchpadUp],
-        );
-        let end = settled(&mut h);
-        assert!(
-            end > -1000 && end < 0,
-            "disabled snapping or smaller columns must not gain a destination: {end}"
-        );
+fn flick_snapping_can_be_disabled_for_every_column_width() {
+    for ratio in [0.35, 0.65, 1.0, 1.4] {
+        for (momentum, speed) in [(0.0, 0.8), (1.0, 0.0)] {
+            let mut h = harness_with_tuning(momentum, speed, 0.55, Some(ratio), false, "");
+            frame(
+                &mut h,
+                [Event::TouchpadDown, swipe(0.06), Event::TouchpadUp],
+            );
+            let end = settled(&mut h);
+            assert!(
+                end > -1000 && end < 0,
+                "disabled snapping must not gain a destination: {end}"
+            );
+        }
     }
 }
 
 #[test]
-fn half_width_snaps_to_both_edges_and_can_be_disabled() {
+fn half_width_snaps_to_both_edges_ignoring_legacy_size_filter() {
     for reversed in [false, true] {
         let mut h = harness_with_tuning(
             1.0,
@@ -304,7 +440,11 @@ fn half_width_snaps_to_both_edges_and_can_be_disabled() {
         &mut h,
         [Event::TouchpadDown, swipe(0.03), Event::TouchpadUp],
     );
-    assert_ne!(settled(&mut h), -TEST_DISPLAY_WIDTH / 2);
+    assert_eq!(
+        settled(&mut h),
+        -TEST_DISPLAY_WIDTH / 2,
+        "legacy size flags no longer exclude Ribbon windows"
+    );
 
     // A full-width first column followed by halves creates distinct left and
     // right alignments: the second column reaches the right edge at -512.

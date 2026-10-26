@@ -155,6 +155,15 @@ precise drags, strength/range/momentum changes, arbitrary column widths, missing
 wheel phases, touch/keyboard interruption and both sides of the infinite seam.
 Physical trackpad feel still needs user tuning.
 
+All three snapping modes share one width-independent column geometry helper.
+Classic flick snapping now uses every Ribbon column's actual width and both
+edge alignments, matching paging and magnetic capture. Full-width columns keep
+one stop within a two-pixel tolerance. The retired full/half-width filter controls
+are absent from Settings; their stored fields and Lua keys remain compatible
+with existing preferences and feel presets but no longer gate snap candidates.
+Classic speed/visibility thresholds, explicit off settings, and Ribbon membership
+still apply.
+
 ### Viewport and focus
 
 A per-workspace `ScrollPositionHold` preserves the viewport through hover,
