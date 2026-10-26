@@ -133,8 +133,7 @@ Space identities and are also checked at native input time during transitions.
 
 ### Experimental magnetic snapping
 
-The `codex/magnetic-snapping` branch adds an opt-in **Magnetic snapping** toggle
-under Snapping (development app v1.21, build 24). It replaces the one-page cap
+Version 1.21 adds an opt-in **Magnetic snapping** toggle under Snapping. It replaces the one-page cap
 and projected flick destination with local capture at both column edges. Finger
 motion stays direct; after release, speed and distance determine whether an edge
 catches or motion coasts through. All column widths participate, including apps
@@ -386,6 +385,23 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 ```
 
 ### Release validation record
+
+**v1.21 (build 25)** includes three-finger tap/click to focus and reveal a Ribbon
+window, opt-in experimental magnetic edge snapping, infinite horizontal keyboard
+focus, and snapping for every Ribbon window width. Keyboard navigation preserves
+stack rows, follows the requested direction through two-window ribbons, and
+retains pending destinations during rapid key repeats. Classic flick snapping
+now shares paging and magnetic snapping's width-independent geometry. Retired
+full/half-width filter fields remain compatible with saved preferences and presets.
+
+Validation covers 527 engine tests, strict Clippy and formatting,
+warnings-as-errors Swift app typechecking, preference/preset persistence,
+the Lua configuration bridge, and six isolated installer checks. Native checks
+confirmed forward/backward keyboard wrapping and preserved saved settings.
+Release packaging records the merged source commit, signing authority, and
+binary/configuration/installer hashes in `BUILD-INFO.json`; `SHA256SUMS.txt`
+covers the ZIP and manifest. The arm64 app requires macOS 13 or later and retains
+the existing local development signing convention without Apple notarization.
 
 **v1.20 (build 23)** adds the optional Infinite ribbon setting in normal and
 Overview modes. Overview supports two- and three-finger scrolling, with smooth
