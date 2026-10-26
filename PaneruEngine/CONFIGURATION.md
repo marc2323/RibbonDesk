@@ -75,7 +75,7 @@ Configure trackpad gestures and scroll-wheel window sliding.
 | `magnet_strength` | Float (0.2–6.0) | `1.8` | Maximum speed a magnet catches at its center, in viewport widths/second. |
 | `magnet_range` | Float (0.03–0.4) | `0.2` | Capture radius as a fraction of viewport width. |
 | `three_finger_paging` | Boolean | `false` | Every horizontal three-finger gesture advances one window alignment, including nonstandard widths. Enabled by the settings companion. |
-| `infinite_ribbon` | Boolean | `false` | Join both ends for horizontal scrolling and paging without changing column order. Overrides horizontal edge clamps for ribbons with at least two columns. |
+| `infinite_ribbon` | Boolean | `false` | Join both ends for horizontal scrolling, paging, and keyboard focus without changing column order. Horizontal focus wraps between the first and last columns, preserving the stack row when possible. Overrides horizontal edge clamps for ribbons with at least two columns. |
 | `snap_animation` | Float (0.2–4.0) | `1.0` | Snap spring speed multiplier; higher settles faster, independently of the flick threshold. |
 | `snap_full_width` | Boolean | `true` | Snap columns within 90–102% of the viewport width to the leading edge. |
 | `snap_half_width` | Boolean | `false` | Snap columns within 45–55% of viewport width to either edge. Enabled by the settings companion. |
@@ -118,8 +118,11 @@ scrolling keep their original behavior. No eligible destination leaves the viewp
 where it began. Disabling paging restores the saved free-scroll settings.
 
 With `infinite_ribbon` enabled, the first column follows the last in either
-direction, including during coasting and snap animation. Columns retain their
-logical order, widths, stacks, and tab groups. Each native window appears once;
+direction, including during coasting and snap animation. Horizontal window-focus
+commands also cross the join, preserving the current stack row or using the last
+row if the destination column is shorter. Vertical focus and window swaps retain
+their ordinary bounds. Columns retain their logical order, widths, stacks, and
+tab groups. Each native window appears once;
 short ribbons leave enough space for a column to leave the viewport before it
 returns. A single column uses its normal bounds. Switching the option off stops
 active scrolling and restores the ordinary bounds around the nearest visible

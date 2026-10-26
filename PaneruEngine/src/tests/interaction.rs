@@ -32,6 +32,212 @@ fn active_offset_and_hold(world: &mut World) -> (Origin, bool) {
 }
 
 #[test]
+fn horizontal_keyboard_focus_wraps_only_in_infinite_ribbons() {
+    for (infinite, auto_center) in [(false, false), (true, false), (true, true)] {
+        for full_width in [false, true] {
+            let width = if full_width { 1.0 } else { 0.5 };
+            for count in [1, 2, 5] {
+                let config = Config::try_from(
+                    format!(
+                        r#"
+[options]
+auto_center = {auto_center}
+focus_follows_mouse = false
+mouse_follows_focus = false
+preserve_scroll_until_click = true
+animation_speed = 10000.0
+[swipe]
+infinite_ribbon = {infinite}
+[windows.default]
+title = ".*"
+width = {width}
+"#
+                    )
+                    .as_str(),
+                )
+                .expect("keyboard focus config");
+                let mut harness = TestHarness::new().with_config(config).with_windows(count);
+                harness.run(vec![Event::MenuOpened { window_id: 0 }]);
+                let order = harness
+                    .world()
+                    .query_filtered::<&LayoutStrip, With<ActiveWorkspaceMarker>>()
+                    .single(harness.world())
+                    .expect("active ribbon")
+                    .all_columns();
+                let mut expected = 0;
+                for direction in [Direction::East, Direction::West] {
+                    for _ in 0..=count * 2 {
+                        let before = active_offset_and_hold(harness.world()).0.x;
+                        expected = match direction {
+                            Direction::East if infinite => (expected + 1) % count,
+                            Direction::East => (expected + 1).min(count - 1),
+                            Direction::West if infinite => (expected + count - 1) % count,
+                            _ => (expected - 1).max(0),
+                        };
+                        harness.run(vec![Event::Command {
+                            command: Command::Window(Operation::Focus(direction.clone())),
+                        }]);
+                        let world = harness.world();
+                        assert_focused!(world, expected);
+                        let target = find_window_entity(expected, world);
+                        let frame = world.get::<Window>(target).expect("focused window").frame();
+                        assert!(
+                            frame.min.x >= 0 && frame.max.x <= TEST_DISPLAY_WIDTH,
+                            "target must be visible: {frame:?}"
+                        );
+                        if auto_center {
+                            assert_eq!(frame.center().x, TEST_DISPLAY_WIDTH / 2);
+                        }
+                        assert_eq!(
+                            world
+                                .query_filtered::<&LayoutStrip, With<ActiveWorkspaceMarker>>()
+                                .single(world)
+                                .expect("active ribbon")
+                                .all_columns(),
+                            order
+                        );
+                        if infinite && count > 1 && full_width {
+                            let after = active_offset_and_hold(world).0.x;
+                            assert!(
+                                if direction == Direction::East {
+                                    after < before
+                                } else {
+                                    after > before
+                                },
+                                "{direction:?} must continue through the join: {before} -> {after}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn infinite_keyboard_wrap_takes_over_from_scrolling_and_reveals_its_target() {
+    for (start, target, direction, delta) in [
+        (4, 0, Direction::East, 0.04),
+        (0, 4, Direction::West, -0.04),
+    ] {
+        for release in [false, true] {
+            let config = Config::try_from(
+                r#"
+[options]
+auto_center = false
+focus_follows_mouse = false
+mouse_follows_focus = false
+preserve_scroll_until_click = true
+animation_speed = 10000.0
+[swipe]
+infinite_ribbon = true
+magnetic_snapping = true
+[swipe.gesture]
+fingers_count = 3
+[windows.default]
+title = ".*"
+width = 1.0
+"#,
+            )
+            .expect("infinite keyboard config");
+            let mut harness = TestHarness::new().with_config(config).with_windows(5);
+            harness.run(vec![
+                Event::MenuOpened { window_id: 0 },
+                Event::Command {
+                    command: Command::Window(Operation::Focus(Direction::Nth(start))),
+                },
+            ]);
+            harness.world().write_message(Event::TouchpadDown);
+            harness
+                .world()
+                .write_message(Event::Swipe { delta, fingers: 3 });
+            if release {
+                harness.world().write_message(Event::TouchpadUp);
+            }
+            harness.advance(Duration::from_millis(20));
+            let world = harness.world();
+            assert!(active_offset_and_hold(world).1);
+            assert!(
+                world
+                    .query::<&crate::ecs::Scrolling>()
+                    .iter(world)
+                    .next()
+                    .is_some()
+            );
+            harness.run(vec![Event::Command {
+                command: Command::Window(Operation::Focus(direction.clone())),
+            }]);
+            let world = harness.world();
+            assert_focused!(world, target);
+            assert!(!active_offset_and_hold(world).1);
+            assert!(
+                world
+                    .query::<&crate::ecs::Scrolling>()
+                    .iter(world)
+                    .next()
+                    .is_none()
+            );
+            let target = find_window_entity(target, world);
+            let frame = world.get::<Window>(target).expect("target window").frame();
+            assert!(
+                frame.min.x >= 0 && frame.max.x <= TEST_DISPLAY_WIDTH,
+                "wrapped target must be visible: {frame:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn infinite_keyboard_repeat_keeps_advancing_during_reveal_animation() {
+    let config = Config::try_from(
+        r#"
+[options]
+auto_center = false
+focus_follows_mouse = false
+mouse_follows_focus = false
+animation_speed = 30.0
+[swipe]
+infinite_ribbon = true
+[windows.default]
+title = ".*"
+width = 1.0
+"#,
+    )
+    .expect("animated infinite keyboard config");
+    let mut harness = TestHarness::new().with_config(config).with_windows(2);
+    harness.run(vec![Event::MenuOpened { window_id: 0 }]);
+    let mut target = active_offset_and_hold(harness.world()).0.x;
+    let mut expected = 0;
+    for direction in [Direction::East, Direction::West] {
+        for _ in 0..8 {
+            harness.world().write_message(Event::Command {
+                command: Command::Window(Operation::Focus(direction.clone())),
+            });
+            harness.advance(Duration::from_millis(20));
+            let world = harness.world();
+            expected = 1 - expected;
+            assert_focused!(world, expected);
+            target += if direction == Direction::East {
+                -TEST_DISPLAY_WIDTH
+            } else {
+                TEST_DISPLAY_WIDTH
+            };
+            let (position, pending) = world.query_filtered::<(&Position, Option<&RepositionMarker>), With<ActiveWorkspaceMarker>>()
+                .single(world).expect("active ribbon");
+            assert_eq!(
+                pending.map_or(position.x, |pending| pending.x),
+                target,
+                "repeats must keep the requested lap"
+            );
+            assert_ne!(position.x, target, "the next key arrives during animation");
+        }
+    }
+    harness.advance(Duration::from_secs(2));
+    assert_focused!(harness.world(), 0);
+    assert_eq!(active_offset_and_hold(harness.world()).0.x, 0);
+}
+
+#[test]
 fn keyboard_navigation_always_reveals_after_manual_scroll() {
     for (start, target, direction) in [
         (1, 0, Direction::West),

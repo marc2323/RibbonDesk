@@ -4,6 +4,7 @@ use std::time::Duration;
 use bevy::app::{App, Plugin, PostUpdate, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::lifecycle::{Add, Remove};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Has, With};
@@ -314,6 +315,7 @@ fn autocenter_window_on_focus(
     mouse_held: Query<&MouseHeldMarker>,
     restored: Query<&RestoreFocusMarker>,
     held_offsets: Query<&LayoutStrip, With<super::ScrollPositionHold>>,
+    mut horizontal_reveals: RemovedComponents<super::HorizontalFocusReveal>,
     global_state: GlobalState,
     active_display: ActiveDisplay,
     mut ctx: WindowCtx,
@@ -324,6 +326,12 @@ fn autocenter_window_on_focus(
         return;
     }
     let entity = *focused;
+    // The directional reveal already chose and centered the destination's lap.
+    // A second reveal from its focus acknowledgment would replace that target
+    // with the current physical copy during fast keyboard repeats.
+    if horizontal_reveals.read().any(|revealed| revealed == entity) {
+        return;
+    }
     if held_offsets.iter().any(|strip| strip.contains(entity)) {
         return;
     }

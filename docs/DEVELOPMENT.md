@@ -168,6 +168,16 @@ while swipes, cancelled contacts, extra fingers, and physical-click duplicates
 are rejected. A physical three-finger click follows the Command-click path.
 Explicit navigation and arrangement hotkeys also reveal their target and stop
 an active coast. Modifier scrolling consumes the native momentum tail once.
+Horizontal focus commands wrap between the end columns when Infinite ribbon is
+enabled, preserving stack rows with the same fallback used between adjacent
+columns. The focus-only lookup keeps vertical navigation, arrangement commands,
+and bounded ribbons on their existing paths. Wrapped navigation also takes over
+from an active drag or coast and reveals the destination through the existing
+loop-aware layout geometry.
+The transient horizontal-reveal marker chooses the requested offscreen lap,
+including two-column ribbons, and centers it when automatic centering is on.
+Its removal tells the focus acknowledgment to retain that pending destination
+during rapid key repeats. It adds no timer or idle work.
 
 The active-window outline is hidden through motion and returns after 150 ms
 without movement. The quiet period uses the existing event loop. The outline
