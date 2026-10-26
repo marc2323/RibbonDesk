@@ -12,6 +12,8 @@ struct Preferences: Codable, Equatable, Sendable {
     var snapSpeed: Double = 0.8
     var snapVisible: Double = 0.55
     var snapAnimation: Double = 1.0
+    // Retain legacy size flags when round-tripping saved preferences and presets.
+    // All Ribbon widths are eligible; these fields no longer filter snapping.
     var snapFullWidth: Bool = true
     var snapHalfWidth: Bool = true
     var snapBack: Bool = false

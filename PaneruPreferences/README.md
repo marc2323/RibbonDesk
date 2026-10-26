@@ -163,10 +163,12 @@ The classic controls below apply with magnetic mode off.
 Free scrolling can finish by snapping a sufficiently fast flick to a window
 alignment. The projected coast must satisfy both **Flick threshold** and
 **Snap visibility**. These settings do not tune one-window three-finger paging.
+All Ribbon window widths participate, including fixed-size and oversized apps.
+Both edges can align; a full-width window has a single alignment. Floating
+windows do not participate in Ribbon snapping.
 
 | Setting | Range | Effect |
 | --- | --- | --- |
-| **Full-width / Half-width windows** | On / off | Choose which window sizes can trigger a snap. Half-width windows can align to either edge. |
 | **Flick threshold** | 0–3 screens/second | Minimum speed for a forward snap. Lower values allow gentler flicks; zero disables free-scroll snapping. |
 | **Snap visibility** | 25–95% | How much of the destination window the projected coast must reveal. Higher values require more travel. |
 | **Snap animation** | 0.20–4× | How quickly a triggered snap settles. Higher is faster. Touch again to cancel. |

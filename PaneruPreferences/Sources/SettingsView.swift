@@ -153,8 +153,7 @@ struct SettingsView: View {
                                   readout: String(format: "%.0f%%", settings.magnetRange * 100),
                                   help: "Distance from an alignment where attraction begins, as a percentage of screen width. 3% needs precise placement; 40% catches from farther away. Attraction weakens with distance.")
             } else {
-                toggleRow("Full-width windows", detail: "", value: $model.snapFullWidth)
-                toggleRow("Half-width windows", detail: "Either edge", value: $model.snapHalfWidth)
+                caption("All Ribbon window widths can snap to either edge, including fixed-size apps.")
                 SettingsSliderRow("Flick threshold", value: $model.snapSpeed, range: 0...3, step: 0.1,
                                   readout: settings.snapSpeed == 0 ? "Off" : String(format: "%.2f/s", settings.snapSpeed),
                                   help: "Minimum speed for a forward snap (screens/second). Near 0 allows gentle flicks; 3 requires a fast flick. At 0, free-scroll snapping is off.")

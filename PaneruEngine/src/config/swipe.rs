@@ -23,18 +23,19 @@ pub struct SwipeOptions {
     /// Coast duration multiplier. Zero stops at finger lift. Default: 1.0.
     pub momentum: Option<f64>,
 
-    /// Minimum release speed in viewport widths/second for full-width snapping.
+    /// Minimum release speed in viewport widths/second for flick snapping.
     /// Zero disables flick snapping. Default: 0 (opt-in).
     pub snap_speed: Option<f64>,
 
-    /// Fraction of a full-width column the projected coast must reveal.
+    /// Fraction of the destination column the projected coast must reveal.
     /// Default: 0.55. Range: 0.25–0.95.
     pub snap_visible: Option<f64>,
 
     /// Snap spring speed multiplier, independent of the flick threshold.
     /// Default: 1.0. Range: 0.2–4.0.
     pub snap_animation: Option<f64>,
-    /// Which column sizes may snap. Half-width columns can align to either edge.
+    /// Legacy size filters, accepted for configuration compatibility but ignored.
+    /// Every Ribbon column width can snap to either edge.
     pub snap_full_width: Option<bool>,
     pub snap_half_width: Option<bool>,
     /// Allow a snap to undo swipe progress. Default: false.
@@ -53,7 +54,7 @@ pub struct SwipeOptions {
     /// Range: 0.03–0.4. All column widths have magnets at both edges.
     pub magnet_range: Option<f64>,
 
-    /// Every horizontal three-finger gesture advances one full/half-width snap.
+    /// Every horizontal three-finger gesture advances one adjacent alignment.
     /// Overrides free-scroll tuning unless magnetic snapping is on. Default: false.
     pub three_finger_paging: Option<bool>,
 
