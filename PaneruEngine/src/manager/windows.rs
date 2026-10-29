@@ -57,6 +57,18 @@ static ENHANCED_UI_SUPPRESSED: LazyLock<Mutex<HashMap<Pid, Instant>>> =
 static ENHANCED_UI_ABSENT: LazyLock<RwLock<HashMap<Pid, Instant>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
+/// How long until [`restore_enhanced_ui`] with the same `idle` has work, or
+/// `None` when no app is waiting for its assistive mode back.
+pub(crate) fn next_enhanced_ui_restore(idle: Duration) -> Option<Duration> {
+    let now = Instant::now();
+    ENHANCED_UI_SUPPRESSED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .values()
+        .map(|last_move| (*last_move + idle).saturating_duration_since(now))
+        .min()
+}
+
 /// Switches `AXEnhancedUserInterface` back on for every app whose windows have
 /// not moved for `idle`. `Duration::ZERO` restores all of them, for shutdown.
 pub(crate) fn restore_enhanced_ui(idle: Duration) {

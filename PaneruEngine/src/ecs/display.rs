@@ -8,7 +8,7 @@ use bevy::ecs::message::MessageReader;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, NonSend, Query, Res};
+use bevy::ecs::system::{Commands, Local, NonSend, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::IRect;
 use bevy::platform::collections::HashSet;
@@ -117,12 +117,14 @@ fn display_change_handler(
 /// macOS may report an empty or incomplete display list during reconfiguration;
 /// applying that transient list would orphan every workspace. A successful
 /// scan refreshes both display ownership and the positions of its strips.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_displays(
     mut messages: MessageReader<Event>,
     workspaces: Query<(&LayoutStrip, Entity, Option<&ChildOf>)>,
     mut displays: Query<(&mut Display, Entity)>,
     window_manager: Res<WindowManager>,
     time: Res<Time>,
+    mut next_wake: ResMut<super::NextWake>,
     mut state: Local<DisplayReconcileState>,
     mut commands: Commands,
 ) {
@@ -140,6 +142,7 @@ pub(crate) fn reconcile_displays(
     });
     if needs_reconcile {
         state.pending = Some(Timer::new(DISPLAY_SETTLE_DELAY, TimerMode::Once));
+        next_wake.within(DISPLAY_SETTLE_DELAY);
         state.retries_left = DISPLAY_RETRIES;
         state.verify_again = true;
         return;
@@ -150,6 +153,7 @@ pub(crate) fn reconcile_displays(
     };
     timer.tick(time.delta());
     if !timer.is_finished() {
+        next_wake.within(timer.remaining());
         return;
     }
     state.pending = None;
@@ -171,6 +175,7 @@ pub(crate) fn reconcile_displays(
             state.retries_left -= 1;
             warn!("Display list is incomplete; retrying in {DISPLAY_RETRY_DELAY:?}");
             state.pending = Some(Timer::new(DISPLAY_RETRY_DELAY, TimerMode::Once));
+            next_wake.within(DISPLAY_RETRY_DELAY);
             return;
         }
         warn!("Display list is still incomplete after retries; applying the latest scan");

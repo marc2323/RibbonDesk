@@ -5,7 +5,8 @@ use objc2::MainThreadMarker;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask, NSEventModifierFlags,
-    NSEventType,
+    NSEventType, NSHapticFeedbackManager, NSHapticFeedbackPattern, NSHapticFeedbackPerformanceTime,
+    NSHapticFeedbackPerformer, NSScreen,
 };
 use objc2_core_foundation::CFString;
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSProcessInfo};
@@ -439,6 +440,28 @@ impl Modifiers {
         }
         true
     }
+}
+
+/// One refresh interval of the main display: 8.3 ms on a 120 Hz `ProMotion`
+/// panel, 16.7 ms at 60 Hz. `None` off the main thread or without a screen.
+pub fn main_display_frame_period() -> Option<std::time::Duration> {
+    let mtm = MainThreadMarker::new()?;
+    let fps = NSScreen::mainScreen(mtm)?.maximumFramesPerSecond();
+    let fps = u32::try_from(fps).ok().filter(|fps| *fps > 0)?;
+    Some(std::time::Duration::from_secs(1) / fps)
+}
+
+/// A light trackpad click under the finger. Force Touch trackpads deliver it
+/// while a finger rests on them, whichever app is frontmost; other input
+/// devices ignore it.
+pub fn perform_alignment_haptic() {
+    if MainThreadMarker::new().is_none() {
+        return;
+    }
+    NSHapticFeedbackManager::defaultPerformer().performFeedbackPattern_performanceTime(
+        NSHapticFeedbackPattern::Alignment,
+        NSHapticFeedbackPerformanceTime::Now,
+    );
 }
 
 /// Cached macOS major version (e.g. 14 for Sonoma, 15 for Sequoia).

@@ -381,6 +381,17 @@ fn collect_state_broadcast_events_for_intent(
     outgoing
 }
 
+/// The events [`collect_window_behavior_events`] can turn into a broadcast.
+fn is_window_behavior_event(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::WindowDestroyed { .. }
+            | Event::WindowMinimized { .. }
+            | Event::WindowSpawned { .. }
+            | Event::WindowBehaviorChanged { .. }
+    )
+}
+
 fn collect_window_behavior_events(
     events: &[&Event],
     windows: &crate::ecs::params::Windows<'_, '_>,
@@ -453,15 +464,28 @@ fn state_event_broadcast_handler(
     active_workspace_changes: Query<Entity, Added<ActiveWorkspaceMarker>>,
     state: QueryStateParams,
 ) {
-    let events = messages.read().collect::<Vec<_>>();
+    let full_state = subscribers
+        .streams
+        .iter()
+        .any(|subscriber| !subscriber.behavior_only);
+    // Behavior-only listeners (the companion) care about a handful of window
+    // lifecycle events. Skip everything else without collecting the frame.
+    let events = if full_state {
+        messages.read().collect::<Vec<_>>()
+    } else {
+        let events = messages
+            .read()
+            .filter(|event| is_window_behavior_event(event))
+            .collect::<Vec<_>>();
+        if events.is_empty() {
+            return;
+        }
+        events
+    };
     let mut outgoing = collect_window_behavior_events(&events, state.windows());
     // A companion listener adds no layout extraction or native geometry reads
     // to ordinary focus, hover, title or pointer events.
-    if subscribers
-        .streams
-        .iter()
-        .any(|subscriber| !subscriber.behavior_only)
-    {
+    if full_state {
         let signals = StateBroadcastSignals {
             virtual_workspace_changed: !active_workspace_changes.is_empty(),
             windows_changed: events.iter().any(|event| {

@@ -1,5 +1,5 @@
 use std::sync::mpsc::Receiver;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::MinimalPlugins;
 use bevy::app::App as BevyApp;
@@ -43,6 +43,7 @@ use crate::platform::{Modifiers, PlatformCallbacks, WinID, WorkspaceId};
 
 pub(crate) mod decorations;
 pub mod display;
+pub mod floating;
 pub mod focus;
 pub mod layout;
 #[cfg(feature = "lua")]
@@ -77,7 +78,9 @@ pub fn register_systems(app: &mut bevy::app::App) {
     const APP_OBSERVABILITY_CHECK_FREQ: Duration = Duration::from_millis(200);
 
     app.init_resource::<decorations::OverlayState>()
-        .init_resource::<decorations::OverlayMotion>();
+        .init_resource::<decorations::OverlayMotion>()
+        .init_resource::<NextWake>()
+        .init_resource::<scroll::SnapHaptics>();
 
     let not_swiping = |scrolling: Query<&Scrolling, With<ActiveWorkspaceMarker>>| {
         scrolling
@@ -206,6 +209,7 @@ pub fn register_systems(app: &mut bevy::app::App) {
                 .chain(),
             crate::menubar::update_menu_bar
                 .run_if(vw_indicator_dirty.or_eager(strip_count_changed)),
+            scroll::play_snap_haptics,
         ),
     );
 }
@@ -531,6 +535,26 @@ impl VerifyWindowPosition {
 
 #[derive(Deref, DerefMut, Resource)]
 pub struct LowPowerMode(pub bool);
+
+/// The earliest moment some system needs the next frame, so the idle event
+/// pump can sleep until then instead of polling. Systems with a pending
+/// deadline (timers, quiet periods) request it every frame they run; the pump
+/// takes the request when it decides how long to wait.
+#[derive(Debug, Default, Resource)]
+pub struct NextWake(Option<Instant>);
+
+impl NextWake {
+    /// Asks for a frame no later than `delay` from now.
+    pub fn within(&mut self, delay: Duration) {
+        let at = Instant::now() + delay;
+        self.0 = Some(self.0.map_or(at, |current| current.min(at)));
+    }
+
+    /// The requested deadline, clearing it for the next frame's requests.
+    pub fn take(&mut self) -> Option<Instant> {
+        self.0.take()
+    }
+}
 
 #[derive(Resource)]
 pub struct SystemTheme {

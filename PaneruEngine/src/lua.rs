@@ -90,6 +90,9 @@ pub fn dispatch_lua_events(worker: Option<Res<LuaWorker>>, mut reader: MessageRe
     // No `paneru.on` handlers means nothing consumes these events; just
     // advance past them.
     let mask = worker.subscribed_event_mask();
+    crate::platform::input::set_script_wants_mouse_moved(
+        mask & convert::LuaEvent::bit_for_name("mouse_moved") != 0,
+    );
     if mask == 0 {
         for _ in reader.read() {}
         return;

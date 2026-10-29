@@ -61,6 +61,10 @@ pub struct SwipeOptions {
     /// Join the ribbon ends for horizontal scrolling and paging. Default: false.
     pub infinite_ribbon: Option<bool>,
 
+    /// A light trackpad click when a page commits or a magnet catches.
+    /// Default: false.
+    pub haptics: Option<bool>,
+
     /// Three-finger upward swipe opens the native companion overview.
     pub ribbon_overview: Option<bool>,
 

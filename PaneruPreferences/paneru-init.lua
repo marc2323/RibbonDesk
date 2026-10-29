@@ -35,6 +35,7 @@ local config = {
   ["default_workspaces"] = 1,
   ["options"] = {
     ["default_floating"] = true,
+    ["floating_follows_ribbon"] = preferences.floating_follows_ribbon ~= false,
     ["preset_column_widths"] = { 0.5, 1.0 },
     ["window_resize_cycle"] = true,
     ["focus_follows_mouse"] = focus_follows_mouse,
@@ -71,6 +72,7 @@ local config = {
     ["magnet_range"] = magnet_range,
     ["three_finger_paging"] = preferences.three_finger_paging ~= false,
     ["infinite_ribbon"] = preferences.infinite_ribbon == true,
+    ["haptics"] = preferences.trackpad_haptics ~= false,
     ["continuous"] = false,
     ["gesture"] = {
       ["fingers_count"] = 3,

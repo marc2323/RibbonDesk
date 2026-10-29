@@ -45,6 +45,7 @@ impl SessionRestore {
 pub(super) fn tick_restore_grace(
     time: Res<Time<Virtual>>,
     mut session: Option<ResMut<SessionRestore>>,
+    mut next_wake: ResMut<super::NextWake>,
     mut commands: Commands,
 ) {
     let Some(session) = session.as_mut() else {
@@ -52,6 +53,7 @@ pub(super) fn tick_restore_grace(
     };
 
     session.timer.tick(time.delta());
+    next_wake.within(session.timer.remaining());
     if session.timer.is_finished() {
         info!("Session restore grace period ended");
         commands.remove_resource::<SessionRestore>();

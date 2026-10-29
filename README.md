@@ -3,12 +3,13 @@
 A scrolling ribbon of windows for macOS, with a native menu-bar app and an
 overview for navigating and arranging your whole workspace.
 
-[Download v1.22](https://github.com/marc2323/RibbonDesk/releases/tag/v1.22) ·
+[Download v1.23](https://github.com/marc2323/RibbonDesk/releases/tag/v1.23) ·
 [Settings guide](PaneruPreferences/README.md) ·
 [Build and development](docs/DEVELOPMENT.md)
 
-Version 1.22 makes Infinite ribbon wraps smooth in browsers such as Firefox,
-which no longer slide across the screen when the ribbon loops.
+Version 1.23 lets floating windows scroll with the ribbon beneath them, adds a
+light trackpad click when a swipe snaps, and makes the engine smoother and
+lighter at rest.
 
 ## What it does
 
@@ -28,8 +29,8 @@ which no longer slide across the screen when the ribbon loops.
 **Requirements:** Apple Silicon Mac, macOS 13 or later. The release download
 includes the engine; Rust, Homebrew, and Xcode are not required.
 
-1. Download **RibbonDesk-1.22-macos-arm64.zip** from the
-   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.22) and extract it.
+1. Download **RibbonDesk-1.23-macos-arm64.zip** from the
+   [release page](https://github.com/marc2323/RibbonDesk/releases/tag/v1.23) and extract it.
 2. If RibbonDesk (or the older Paneru Settings app) is running, choose **Quit**
    in its menu-bar settings first.
 3. Open **Install.command** from the extracted folder. Keep the app, installer,
@@ -39,7 +40,7 @@ includes the engine; Rust, Homebrew, and Xcode are not required.
 5. Complete the macOS **Accessibility** setup when requested. Allow **Screen
    Recording** for RibbonDesk to enable window previews in overview.
 
-**Signing status:** v1.22 uses a local development signature and is **not
+**Signing status:** v1.23 uses a local development signature and is **not
 Apple-notarized**. macOS may require manual approval before opening a downloaded
 copy. See [Apple’s guidance for opening apps](https://support.apple.com/en-us/102445).
 

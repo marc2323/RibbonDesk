@@ -140,6 +140,8 @@ enum Engine {
                 try normalizeActiveWorkspace()
             } else if preferences.scrollTuning != previous.scrollTuning
                         || preferences.infiniteRibbon != previous.infiniteRibbon
+                        || preferences.floatingFollowsRibbon != previous.floatingFollowsRibbon
+                        || preferences.trackpadHaptics != previous.trackpadHaptics
                         || preferences.focusMode != previous.focusMode
                         || preferences.borderEnabled != previous.borderEnabled || preferences.borderColor != previous.borderColor {
                 try PreferenceFiles.reload()
@@ -171,6 +173,8 @@ final class SettingsModel: ObservableObject {
     @Published var magnetRange: Double { didSet { preferenceChanged() } }
     @Published var threeFingerPaging: Bool { didSet { preferenceChanged() } }
     @Published var infiniteRibbon: Bool { didSet { preferenceChanged() } }
+    @Published var floatingFollowsRibbon: Bool { didSet { preferenceChanged() } }
+    @Published var trackpadHaptics: Bool { didSet { preferenceChanged() } }
     @Published var overviewAnimation: Bool { didSet { preferenceChanged() } }
     @Published var gap: Double { didSet { preferenceChanged() } }
     @Published var focusMode: FocusMode { didSet { preferenceChanged() } }
@@ -265,6 +269,8 @@ final class SettingsModel: ObservableObject {
         magnetStrength = preferences.magnetStrength
         magnetRange = preferences.magnetRange
         infiniteRibbon = preferences.infiniteRibbon
+        floatingFollowsRibbon = preferences.floatingFollowsRibbon
+        trackpadHaptics = preferences.trackpadHaptics
         overviewAnimation = preferences.overviewAnimation
         gap = Double(preferences.gap)
         focusMode = preferences.focusMode
@@ -300,7 +306,8 @@ final class SettingsModel: ObservableObject {
                     threeFingerPaging: threeFingerPaging, overviewAnimation: overviewAnimation,
                     infiniteRibbon: infiniteRibbon, magneticSnapping: magneticSnapping,
                     magnetStrength: (magnetStrength * 100).rounded() / 100,
-                    magnetRange: (magnetRange * 100).rounded() / 100).validated
+                    magnetRange: (magnetRange * 100).rounded() / 100,
+                    floatingFollowsRibbon: floatingFollowsRibbon, trackpadHaptics: trackpadHaptics).validated
     }
 
     var borderColor: Color {
@@ -366,6 +373,8 @@ final class SettingsModel: ObservableObject {
         magnetStrength = value.magnetStrength
         magnetRange = value.magnetRange
         infiniteRibbon = value.infiniteRibbon
+        floatingFollowsRibbon = value.floatingFollowsRibbon
+        trackpadHaptics = value.trackpadHaptics
         overviewAnimation = value.overviewAnimation
         gap = Double(value.gap)
         focusMode = value.focusMode

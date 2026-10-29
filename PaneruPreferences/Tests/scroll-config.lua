@@ -76,6 +76,14 @@ real_dofile(source)
 assert(not configured.swipe.infinite_ribbon)
 print("Infinite ribbon configuration: disabled default and explicit on/off toggle passed.")
 
+preferences = {}
+real_dofile(source)
+assert(configured.options.floating_follows_ribbon and configured.swipe.haptics)
+preferences = { floating_follows_ribbon = false, trackpad_haptics = false }
+real_dofile(source)
+assert(not configured.options.floating_follows_ribbon and not configured.swipe.haptics)
+print("Floating follow and haptics configuration: enabled defaults and opt-outs passed.")
+
 app_behavior = { ["com.example.editor"] = "ribbon", ["com.example.chat"] = "floating", ["com.example.browser"] = "ask", ["local.paneru.preferences"] = "ribbon" }
 real_dofile(source)
 assert(configured.options.default_floating == true)

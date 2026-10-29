@@ -275,3 +275,14 @@ var presetApplication = animatedOverview
 presetApplication.scrollTuning = tuned.scrollTuning
 assert(presetApplication.overviewAnimation)
 print("Overview animation preference: instant migration/default, persistence, validation and preset independence passed.")
+
+assert(legacy.floatingFollowsRibbon && legacy.trackpadHaptics, "existing installs get both new features on")
+var optedOut = Preferences.defaults
+optedOut.floatingFollowsRibbon = false
+optedOut.trackpadHaptics = false
+let optedOutRoundTrip = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(optedOut))
+assert(!optedOutRoundTrip.validated.floatingFollowsRibbon && !optedOutRoundTrip.validated.trackpadHaptics)
+let optedOutLua = optedOut.luaSource(disabledSpaceIDs: [])
+assert(optedOutLua.contains("floating_follows_ribbon = false") && optedOutLua.contains("trackpad_haptics = false"))
+assert(Preferences.defaults.luaSource(disabledSpaceIDs: []).contains("floating_follows_ribbon = true"))
+print("Floating follow and trackpad haptics preferences: enabled migration, persistence and Lua export passed.")

@@ -1248,3 +1248,32 @@ fn infinite_paging_reaches_half_width_columns_on_either_side_of_the_join() {
     assert_eq!(settled(&mut h), 0);
     assert_eq!(window_x(&mut h, order[0]), 0);
 }
+
+#[test]
+fn trackpad_haptics_click_once_per_committed_page_and_only_when_enabled() {
+    let played = |h: &mut TestHarness| {
+        h.world()
+            .resource::<crate::ecs::scroll::SnapHaptics>()
+            .played
+    };
+    for (enabled, expected) in [(true, 2), (false, 0)] {
+        let mut h = harness_with_tuning(
+            0.0,
+            0.0,
+            0.95,
+            Some(1.0),
+            false,
+            &format!("three_finger_paging = true\nhaptics = {enabled}"),
+        );
+        frame(&mut h, [Event::TouchpadDown, swipe(0.05)]);
+        assert_eq!(played(&mut h), 0, "no click while the fingers are down");
+        frame(&mut h, [Event::TouchpadUp]);
+        assert_eq!(settled(&mut h), -TEST_DISPLAY_WIDTH);
+        frame(
+            &mut h,
+            [Event::TouchpadDown, swipe(-0.05), Event::TouchpadUp],
+        );
+        assert_eq!(settled(&mut h), 0);
+        assert_eq!(played(&mut h), expected, "one click per page");
+    }
+}
