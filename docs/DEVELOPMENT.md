@@ -386,6 +386,21 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 
 ### Release validation record
 
+**v1.22 (build 26)** fixes Infinite ribbon wraps in apps that animate
+accessibility moves. A column changing laps jumps between its offscreen slots;
+Firefox animated that jump, so it swept across the visible windows. The engine
+had cached each app as lacking `AXEnhancedUserInterface` for the app's lifetime.
+It now re-checks at most once a second and keeps the attribute off until the
+app's windows have been still for 400 ms. Window move notifications are ignored
+while the active strip scrolls, because positions are assigned every frame.
+
+Validation covers 527 engine tests, strict Clippy and formatting, and a native
+recording of window frames across repeated wraps: before the change Firefox
+crossed the screen on several wraps; afterwards all 46 lap changes were
+instantaneous. Packaging records the merged source commit and hashes in
+`BUILD-INFO.json` and `SHA256SUMS.txt`, with the existing local development
+signing convention and no Apple notarization.
+
 **v1.21 (build 25)** includes three-finger tap/click to focus and reveal a Ribbon
 window, opt-in experimental magnetic edge snapping, infinite horizontal keyboard
 focus, and snapping for every Ribbon window width. Keyboard navigation preserves
