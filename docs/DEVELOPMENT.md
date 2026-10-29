@@ -433,6 +433,20 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 
 ### Release validation record
 
+**v1.23 (build 27)** lets floating windows follow the Ribbon, paces the engine
+loop (doubling idle backoff, deadline-based waits, display-rate animation
+frames, no batching wait while moving, filtered pointer motion, quieter
+behavior-only broadcasts), fixes an early return that could skip other windows'
+moves for a frame and a missed trailing hover lookup, and adds optional trackpad
+haptics on snap commits. Floating follow and haptics are on by default.
+
+Validation covers 532 engine tests, strict Clippy and formatting, the vendored
+transport tests, warnings-as-errors Swift typechecking, preference, autosave and
+App Behavior tests, and the Lua configuration bridge. On the owner's Mac the
+build preserved window order and settings, floating follow and haptics were
+checked by hand, and the engine used 0.25 s of CPU over 60 idle seconds with
+Firefox, ForkLift and Claude open.
+
 **v1.22 (build 26)** fixes Infinite ribbon wraps in apps that animate
 accessibility moves. A column changing laps jumps between its offscreen slots;
 Firefox animated that jump, so it swept across the visible windows. The engine
