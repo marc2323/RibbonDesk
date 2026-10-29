@@ -54,11 +54,6 @@ how each app's future windows open:
 | **Always start floating** | New windows float without a prompt. The hotkey can still add one. |
 | **Ask each time** | New windows float while a small prompt offers Add to Ribbon or Keep Floating. |
 
-Each app also has a **width** choice: Automatic, One third, Half, Two thirds or
-Full width. It applies when that app's windows join the Ribbon, whether they open
-there or are added with Control–Option–T. Automatic keeps the half/full guess
-from the window's own size.
-
 Prompts are off by default. **Remember for this app** in a prompt saves that
 choice for future windows; ordinary hotkey toggles affect only the current
 window. Rules use stable app bundle identifiers. Apps appear as their windows

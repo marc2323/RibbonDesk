@@ -202,13 +202,7 @@ broadcast system skips frames without window lifecycle events. A floating
 window's layout slot no longer ends `position_layout_windows` early, which
 could leave other windows unmoved for a frame.
 
-### Widths and haptics
-
-Width presets are ⅓, ½, ⅔ and full. Control–Option–3, 2, Shift–3 and 0 set
-them; Control–Option–R steps through them. App Behavior stores an optional
-width per app and exports it as the app rule's `width`, which the engine applies
-when the window joins the Ribbon by opening there or through Control–Option–T;
-the companion's calibration then keeps that width instead of guessing.
+### Trackpad haptics
 
 `swipe.haptics` plays `NSHapticFeedbackPattern.alignment` once when a released
 swipe commits to a snap destination (a page, a magnet catch, or a flick snap).

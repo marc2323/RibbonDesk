@@ -14,52 +14,11 @@ enum AppWindowBehavior: String, Codable, CaseIterable, Identifiable, Sendable {
     func shouldPrompt(global: Bool) -> Bool { self == .ask || (self == .inherit && global) }
 }
 
-/// The column width an app's windows take when they join the Ribbon.
-enum AppWindowWidth: String, Codable, CaseIterable, Identifiable, Sendable {
-    case automatic, third, half, twoThirds, full
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .automatic: return "Automatic width"
-        case .third: return "One third"
-        case .half: return "Half"
-        case .twoThirds: return "Two thirds"
-        case .full: return "Full width"
-        }
-    }
-    var ratio: Double? {
-        switch self {
-        case .automatic: return nil
-        case .third: return 1.0 / 3.0
-        case .half: return 0.5
-        case .twoThirds: return 2.0 / 3.0
-        case .full: return 1.0
-        }
-    }
-}
-
 struct AppBehaviorRule: Codable, Equatable, Identifiable, Sendable {
     var bundleID: String
     var name: String
     var behavior: AppWindowBehavior = .inherit
-    var width: AppWindowWidth = .automatic
     var id: String { bundleID }
-
-    init(bundleID: String, name: String, behavior: AppWindowBehavior = .inherit, width: AppWindowWidth = .automatic) {
-        self.bundleID = bundleID
-        self.name = name
-        self.behavior = behavior
-        self.width = width
-    }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        bundleID = try values.decode(String.self, forKey: .bundleID)
-        name = try values.decode(String.self, forKey: .name)
-        behavior = try values.decodeIfPresent(AppWindowBehavior.self, forKey: .behavior) ?? .inherit
-        // Catalogs saved before per-app widths keep the automatic width.
-        width = try values.decodeIfPresent(AppWindowWidth.self, forKey: .width) ?? .automatic
-    }
 }
 
 struct AppBehaviorLog: Codable, Equatable, Identifiable, Sendable {
@@ -78,10 +37,6 @@ struct AppBehaviorData: Codable, Equatable, Sendable {
 
     func behavior(for bundleID: String) -> AppWindowBehavior {
         apps.first { $0.bundleID == bundleID }?.behavior ?? .inherit
-    }
-
-    func width(for bundleID: String) -> AppWindowWidth {
-        apps.first { $0.bundleID == bundleID }?.width ?? .automatic
     }
 
     mutating func discover(bundleID: String, name: String) {
@@ -105,16 +60,9 @@ struct AppBehaviorData: Codable, Equatable, Sendable {
     }
 
     var luaSource: String {
-        let entries = apps.filter {
-            ($0.behavior != .inherit || $0.width != .automatic) && $0.bundleID != "local.paneru.preferences"
-        }
+        let entries = apps.filter { $0.behavior != .inherit && $0.bundleID != "local.paneru.preferences" }
             .sorted { $0.bundleID < $1.bundleID }
-            .map { app -> String in
-                let behavior = luaString(app.behavior.rawValue)
-                guard let ratio = app.width.ratio else { return "  [\(luaString(app.bundleID))] = \(behavior)," }
-                let width = String(format: "%.4f", locale: Locale(identifier: "en_US_POSIX"), ratio)
-                return "  [\(luaString(app.bundleID))] = { behavior = \(behavior), width = \(width) },"
-            }
+            .map { "  [\(luaString($0.bundleID))] = \(luaString($0.behavior.rawValue))," }
         return "-- Written by RibbonDesk App Behavior.\nreturn {\n" + entries.joined(separator: "\n") + "\n}\n"
     }
 }

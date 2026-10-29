@@ -46,7 +46,7 @@ MainActor.assumeIsolated {
         try! bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name))
         window.close()
     }
-    render(AppBehaviorView(model: model), size: NSSize(width: 860, height: 680), name: "app-behavior.png")
+    render(AppBehaviorView(model: model), size: NSSize(width: 760, height: 680), name: "app-behavior.png")
     let event = try! JSONDecoder().decode(
         AppBehaviorEvent.self,
         from: Data(
