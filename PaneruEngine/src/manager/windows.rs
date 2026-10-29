@@ -13,12 +13,11 @@ use objc2_core_foundation::{
     CFArray, CFBoolean, CFNumber, CFRetained, CFString, CFType, CGPoint, CGRect, CGSize,
     kCFBooleanFalse, kCFBooleanTrue,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use stdext::function_name;
 use stdext::sync::rw_lock::RwLockExt;
 use tracing::{Level, debug, instrument, trace, warn};
@@ -34,21 +33,63 @@ use crate::manager::{Origin, Size, irect_from};
 use crate::platform::{Pid, ProcessSerialNumber, WinID, macos_major_version};
 use crate::util::{AXUIAttributes, AXUIWrapper, MacResult};
 
-/// Per-PID ref-count for the `AXEnhancedUserInterface` workaround. Tracks how many
-/// concurrent window operations are in-flight for each app so the attribute is only
-/// re-enabled after the last one completes (safe under `par_iter_mut`).
-static ENHANCED_UI_REFCOUNT: LazyLock<Mutex<HashMap<Pid, usize>>> =
+/// How long an app found without `AXEnhancedUserInterface` is trusted to stay
+/// that way. Assistive software can switch the attribute on at any time, and an
+/// app that has it animates every AX move: an infinite-ribbon wrap then sweeps
+/// the window across the screen instead of jumping it between parked slots.
+const ENHANCED_UI_RECHECK: Duration = Duration::from_secs(1);
+
+/// How long an app's `AXEnhancedUserInterface` stays off after its last move.
+/// Toggling it around every frame of a gesture costs two extra round trips per
+/// window and can let the app animate the move between them.
+pub(crate) const ENHANCED_UI_RESTORE_DELAY: Duration = Duration::from_millis(400);
+
+/// Apps whose `AXEnhancedUserInterface` this process switched off, with the
+/// time of their latest move. [`restore_enhanced_ui`] switches it back on.
+static ENHANCED_UI_SUPPRESSED: LazyLock<Mutex<HashMap<Pid, Instant>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Apps observed not to have `AXEnhancedUserInterface` set, so the workaround
-/// above can skip them without asking again.
+/// Apps last observed without `AXEnhancedUserInterface`, with the time of that
+/// observation, so a move can skip asking until [`ENHANCED_UI_RECHECK`] passes.
 ///
-/// An `RwLock` rather than a `Mutex`: entries are written once and read by
-/// many concurrent `par_iter_mut` workers afterwards, so readers must not
-/// exclude each other. Entries die with the process, so a relaunch (new pid)
-/// is asked afresh.
-static ENHANCED_UI_ABSENT: LazyLock<RwLock<HashSet<Pid>>> =
-    LazyLock::new(|| RwLock::new(HashSet::new()));
+/// An `RwLock` rather than a `Mutex`: entries are read by many concurrent
+/// `par_iter_mut` workers, so readers must not exclude each other.
+static ENHANCED_UI_ABSENT: LazyLock<RwLock<HashMap<Pid, Instant>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Switches `AXEnhancedUserInterface` back on for every app whose windows have
+/// not moved for `idle`. `Duration::ZERO` restores all of them, for shutdown.
+pub(crate) fn restore_enhanced_ui(idle: Duration) {
+    let now = Instant::now();
+    let pids = {
+        let mut suppressed = ENHANCED_UI_SUPPRESSED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if suppressed.is_empty() {
+            return;
+        }
+        suppressed
+            .extract_if(|_, last_move| now.saturating_duration_since(*last_move) >= idle)
+            .map(|(pid, _)| pid)
+            .collect::<Vec<_>>()
+    };
+    let attr = CFString::from_static_str("AXEnhancedUserInterface");
+    for pid in pids {
+        let Ok(app_element) =
+            AXUIWrapper::from_retained(unsafe { AXUIElementCreateApplication(pid) })
+        else {
+            continue;
+        };
+        debug!(pid, "restoring AXEnhancedUserInterface");
+        unsafe {
+            AXUIElementSetAttributeValue(
+                app_element.as_ptr(),
+                attr.as_ref(),
+                kCFBooleanTrue.unwrap(),
+            );
+        }
+    }
+}
 
 /// macOS may partially apply an AX width increase when the requested right edge
 /// would be far outside the display. Moving the partial result left by the
@@ -168,11 +209,6 @@ pub struct WindowOS {
     border_radius: OnceLock<Option<f64>>,
     pid: OnceLock<Result<Pid>>,
     app_reference: OnceLock<Option<CFRetained<AXUIWrapper>>>,
-    /// Set once this window's app is known not to use
-    /// `AXEnhancedUserInterface` (the common case), so the steady-state check
-    /// in [`Self::disable_enhanced_ui`] is a relaxed atomic load instead of
-    /// contending for the global mutex from every `par_iter_mut` worker.
-    enhanced_ui_absent: AtomicBool,
 
     /// The last title read off the element, cached because reading one is a
     /// synchronous cross-process call and many callers want it for every
@@ -228,7 +264,6 @@ impl WindowOS {
             border_radius: OnceLock::new(),
             pid: OnceLock::new(),
             app_reference: OnceLock::new(),
-            enhanced_ui_absent: AtomicBool::new(false),
             title: RwLock::new(None),
         };
 
@@ -313,41 +348,35 @@ impl WindowOS {
 
     /// Disables `AXEnhancedUserInterface` on this window's app if it is currently enabled.
     ///
-    /// Uses a per-PID ref-count so that concurrent operations on windows of the same app
-    /// (via `par_iter_mut`) keep the attribute disabled until the last caller re-enables it.
+    /// The attribute stays off until the app's windows have been still for
+    /// [`ENHANCED_UI_RESTORE_DELAY`], so a gesture switches it once rather than
+    /// around every frame. An app found without it is asked again after
+    /// [`ENHANCED_UI_RECHECK`], since assistive software can enable it later.
     ///
     /// This avoids animated move/resize that breaks window management for apps like Chrome,
     /// Firefox, and Zen Browser when accessibility clients (e.g. Kindavim) enable enhanced UI.
     fn disable_enhanced_ui(&self) {
-        // Nothing to disable, and nothing to lock or ask: this window's app has
-        // already been found not to use the attribute.
-        if self.enhanced_ui_absent.load(Ordering::Relaxed) {
-            return;
-        }
         let Ok(pid) = self.pid() else { return };
-        // Another window of the same app may have answered the question already.
-        // Taken before the ref-count mutex, since the answer is usually "absent"
-        // and that path should not touch the ref-count at all.
+        let now = Instant::now();
         if ENHANCED_UI_ABSENT
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(&pid)
+            .get(&pid)
+            .is_some_and(|checked| now.saturating_duration_since(*checked) < ENHANCED_UI_RECHECK)
         {
-            self.enhanced_ui_absent.store(true, Ordering::Relaxed);
             return;
         }
         // Scoped so the lock isn't held across the accessibility calls below:
         // each is a synchronous round-trip into another process, and holding a
         // global mutex across them would serialize every `par_iter_mut` worker
         // behind the slowest app.
+        if let Some(last_move) = ENHANCED_UI_SUPPRESSED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(&pid)
         {
-            let mut counts = ENHANCED_UI_REFCOUNT
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(count) = counts.get_mut(&pid) {
-                *count += 1;
-                return;
-            }
+            *last_move = now;
+            return;
         }
         let Some(app_element) = self.app_reference() else {
             return;
@@ -357,6 +386,7 @@ impl WindowOS {
             .get_attribute::<CFBoolean>(&attr)
             .is_ok_and(|v| CFBoolean::value(&v));
         if enabled {
+            debug!(pid, "suspending AXEnhancedUserInterface while windows move");
             unsafe {
                 AXUIElementSetAttributeValue(
                     app_element.as_ptr(),
@@ -364,53 +394,30 @@ impl WindowOS {
                     kCFBooleanFalse.unwrap(),
                 );
             }
-            // Incremented rather than set: two windows of the same app can race
-            // here and both owe a matching `reenable_enhanced_ui`; setting 1
-            // would let the second one decrement past zero.
-            *ENHANCED_UI_REFCOUNT
+            // Two windows of the same app can race here; both record the same
+            // suppression and the later timestamp wins.
+            ENHANCED_UI_SUPPRESSED
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .entry(pid)
-                .or_insert(0) += 1;
+                .insert(pid, Instant::now());
         } else {
             ENHANCED_UI_ABSENT
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .insert(pid);
-            self.enhanced_ui_absent.store(true, Ordering::Relaxed);
+                .insert(pid, now);
         }
     }
 
-    /// Re-enables `AXEnhancedUserInterface` on this window's app once the last concurrent
-    /// caller has finished. Pairs with [`disable_enhanced_ui`].
+    /// Restarts the restore delay once a move has completed, so a slow AX
+    /// round trip does not eat into it. Pairs with [`Self::disable_enhanced_ui`].
     fn reenable_enhanced_ui(&self) {
-        // Nothing was disabled, so there is no ref-count entry to find and no
-        // reason to take the lock looking for one.
-        if self.enhanced_ui_absent.load(Ordering::Relaxed) {
-            return;
-        }
         let Ok(pid) = self.pid() else { return };
-        let mut counts = ENHANCED_UI_REFCOUNT
+        if let Some(last_move) = ENHANCED_UI_SUPPRESSED
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(count) = counts.get_mut(&pid) else {
-            return;
-        };
-        *count = count.saturating_sub(1);
-        if *count > 0 {
-            return;
-        }
-        counts.remove(&pid);
-        drop(counts);
-        if let Some(app_element) = self.app_reference() {
-            let attr = CFString::from_static_str("AXEnhancedUserInterface");
-            unsafe {
-                AXUIElementSetAttributeValue(
-                    app_element.as_ptr(),
-                    attr.as_ref(),
-                    kCFBooleanTrue.unwrap(),
-                );
-            }
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(&pid)
+        {
+            *last_move = Instant::now();
         }
     }
 

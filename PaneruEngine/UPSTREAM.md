@@ -32,6 +32,13 @@ License: MIT; see LICENSE.txt.
 - Shortcuts and mouse clicks accept group-only modifier flags from remote or
   accessibility input, while retaining physical left/right modifier distinctions.
 - Natural scrolling and inertia retain their existing integrator and boundaries.
+- `AXEnhancedUserInterface` is re-checked at most once a second per app instead
+  of being cached as absent for the app's lifetime, and stays off until the
+  app's windows have been still for 400 ms rather than toggling around every
+  move. Apps with it enabled animate AX moves, which turned infinite-ribbon
+  lap changes into full-screen sweeps.
+- Window move notifications are dropped while the active strip is scrolling,
+  since every frame then assigns positions directly.
 - Harness regressions check actual scroll movement, repeated/external focus,
   hover, activation, ordinary clicks, and Command-click reveal in both focus modes.
 - Three upstream test durations use seconds instead of 1000 milliseconds for the

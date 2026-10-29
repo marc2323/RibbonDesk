@@ -31,12 +31,13 @@ use crate::ecs::params::{ActiveDisplay, FrameActivity, Windows};
 use crate::ecs::{
     ActiveWorkspaceMarker, Bounds, BruteforceWindows, FlashMessage, FocusedMarker, Initializing,
     LowPowerMode, MissionControlActive, Position, QuickReveal, ReadDisplayProperties,
-    RestoreWindowState, SendMessageTrigger, SpawnCommandsExt, Unmanaged, WidthRatio,
+    RestoreWindowState, Scrolling, SendMessageTrigger, SpawnCommandsExt, Unmanaged, WidthRatio,
     WindowProperties,
 };
 use crate::events::{Event, InputEvent};
 use crate::manager::{
-    Application, Display, Process, Window, WindowManager, WindowOS, bruteforce_windows,
+    Application, Display, ENHANCED_UI_RESTORE_DELAY, Process, Window, WindowManager, WindowOS,
+    bruteforce_windows, restore_enhanced_ui,
 };
 use crate::overlay::{FlashMessageManager, OverlayManager};
 use crate::platform::input::TapHealth;
@@ -759,6 +760,11 @@ pub(crate) fn pump_events(
     received_events.extend(pending_mouse.take());
     messages.write_batch(received_events);
 
+    // Apps whose windows stopped moving get their assistive mode back. The
+    // idle pump wakes at least every `LOOP_MAX_TIMEOUT_MS`, which bounds how
+    // late that can be.
+    restore_enhanced_ui(ENHANCED_UI_RESTORE_DELAY);
+
     if drained {
         let frame_active = activity.mid_frame();
         let low_power = low_power_mode.is_some_and(|low_power| low_power.0);
@@ -868,7 +874,15 @@ pub(super) fn window_resized_update_frame(
 pub(crate) fn window_moved_update_frame(
     mut messages: MessageReader<Event>,
     mut windows: MovableWindows,
+    scrolling: Query<(), (With<Scrolling>, With<ActiveWorkspaceMarker>)>,
 ) {
+    // Inertia and snapping assign every frame directly, so a move notification
+    // read then echoes a frame the strip has already left, and an app that
+    // applies moves late would pull its window back to it. Drop them unread.
+    if !scrolling.is_empty() {
+        messages.clear();
+        return;
+    }
     for event in messages.read() {
         let Event::WindowMoved { window_id } = event else {
             continue;
@@ -1184,6 +1198,7 @@ pub(super) fn cleanup_on_exit(
     mut overlay_mgr: Option<NonSendMut<OverlayManager>>,
 ) {
     for _ in exit_events.read() {
+        restore_enhanced_ui(Duration::ZERO);
         let ids = all_windows.iter().map(|w| w.id()).collect::<Vec<_>>();
         info!("exit cleanup: restoring {} window(s)", ids.len());
         window_manager.dim_windows(&ids, 0.0);
