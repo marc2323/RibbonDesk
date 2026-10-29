@@ -76,6 +76,32 @@ real_dofile(source)
 assert(not configured.swipe.infinite_ribbon)
 print("Infinite ribbon configuration: disabled default and explicit on/off toggle passed.")
 
+preferences = {}
+real_dofile(source)
+assert(configured.options.floating_follows_ribbon and configured.swipe.haptics)
+preferences = { floating_follows_ribbon = false, trackpad_haptics = false }
+real_dofile(source)
+assert(not configured.options.floating_follows_ribbon and not configured.swipe.haptics)
+assert(#configured.options.preset_column_widths == 4)
+assert(math.abs(configured.options.preset_column_widths[1] - 1 / 3) < 1e-9)
+assert(math.abs(configured.options.preset_column_widths[3] - 2 / 3) < 1e-9)
+print("Floating, haptics and width presets: defaults, opt-outs and thirds passed.")
+
+app_behavior = {
+    ["com.example.notes"] = { behavior = "ribbon", width = 0.3333 },
+    ["com.example.term"] = { behavior = "inherit", width = 0.6667 },
+    ["com.example.bad"] = { behavior = "floating", width = 7 },
+}
+preferences = {}
+real_dofile(source)
+assert(configured.windows["app:com.example.notes"].floating == false)
+assert(configured.windows["app:com.example.notes"].width == 0.3333)
+assert(configured.windows["app:com.example.term"].floating == nil, "inherit keeps the global default")
+assert(configured.windows["app:com.example.term"].width == 0.6667)
+assert(configured.windows["app:com.example.bad"].floating == true)
+assert(configured.windows["app:com.example.bad"].width == nil, "out-of-range widths are ignored")
+print("Per-app widths: table entries, inherited behavior and bounds passed.")
+
 app_behavior = { ["com.example.editor"] = "ribbon", ["com.example.chat"] = "floating", ["com.example.browser"] = "ask", ["local.paneru.preferences"] = "ribbon" }
 real_dofile(source)
 assert(configured.options.default_floating == true)

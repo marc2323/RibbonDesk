@@ -54,6 +54,18 @@ let output =
     ? URL(fileURLWithPath: CommandLine.arguments[1]) : root.appendingPathComponent("escaped.lua")
 try Data(data.luaSource.utf8).write(to: output)
 
+var widths = AppBehaviorData()
+widths.discover(bundleID: "com.example.notes", name: "Notes")
+widths.discover(bundleID: "com.example.term", name: "Terminal")
+widths.apps[0].width = .third
+widths.apps[1].behavior = .ribbon
+assert(widths.width(for: "com.example.notes") == .third && widths.width(for: "missing") == .automatic)
+assert(widths.luaSource.contains("behavior = \"\\105\\110\\104\\101\\114\\105\\116\", width = 0.3333 }"))
+assert(!widths.luaSource.contains("width = 1"), "automatic widths export only the behavior")
+let legacyRule = #"{"bundleID":"com.example.old","name":"Old","behavior":"floating"}"#
+let decodedRule = try JSONDecoder().decode(AppBehaviorRule.self, from: Data(legacyRule.utf8))
+assert(decodedRule.width == .automatic && decodedRule.behavior == .floating)
+
 let buffer = AppBehaviorEventBuffer()
 let event =
     #"{"event":"window_opened","window_id":42,"pid":123,"app_name":"Editor","bundle_id":"com.example.editor","floating":true,"startup":false}"#

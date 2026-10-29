@@ -35,7 +35,8 @@ local config = {
   ["default_workspaces"] = 1,
   ["options"] = {
     ["default_floating"] = true,
-    ["preset_column_widths"] = { 0.5, 1.0 },
+    ["floating_follows_ribbon"] = preferences.floating_follows_ribbon ~= false,
+    ["preset_column_widths"] = { 1 / 3, 0.5, 2 / 3, 1.0 },
     ["window_resize_cycle"] = true,
     ["focus_follows_mouse"] = focus_follows_mouse,
     ["preserve_scroll_until_click"] = true,
@@ -71,6 +72,7 @@ local config = {
     ["magnet_range"] = magnet_range,
     ["three_finger_paging"] = preferences.three_finger_paging ~= false,
     ["infinite_ribbon"] = preferences.infinite_ribbon == true,
+    ["haptics"] = preferences.trackpad_haptics ~= false,
     ["continuous"] = false,
     ["gesture"] = {
       ["fingers_count"] = 3,
@@ -120,11 +122,23 @@ config.windows.preferences = {
 }
 -- Each app has exactly one rule; leave floating out of the generic padding
 -- rule so rule-table iteration order cannot override an app's saved choice.
+-- An entry is the behavior name, or a table with the behavior and a default
+-- column width ratio.
+local app_widths = {}
 for bundle, behavior in pairs(app_behavior) do
     if type(bundle) == "string" and bundle ~= "local.paneru.preferences" then
-        config.windows["app:" .. bundle] = {
-            title = ".*", bundle_id = bundle, floating = behavior ~= "ribbon",
-        }
+        local mode, width = behavior, nil
+        if type(behavior) == "table" then
+            mode, width = behavior.behavior, tonumber(behavior.width)
+            if width and (width ~= width or width < 0.1 or width > 1.0) then width = nil end
+        end
+        local rule = { title = ".*", bundle_id = bundle }
+        if mode ~= nil and mode ~= "inherit" then rule.floating = mode ~= "ribbon" end
+        if width then
+            rule.width = width
+            app_widths[bundle] = width
+        end
+        config.windows["app:" .. bundle] = rule
     end
 end
 paneru.setup(config)
@@ -160,26 +174,39 @@ local function set_width(ws, ratio)
     calibrated[id] = true
     return ws:width(id, ratio)
 end
-local function toggle_width(ws)
+-- Control-Option-R steps through the width presets, wrapping after full width.
+local width_presets = { 1 / 3, 0.5, 2 / 3, 1.0 }
+local function next_preset(ratio)
+    for _, preset in ipairs(width_presets) do
+        if preset > ratio + 0.04 then return preset end
+    end
+    return width_presets[1]
+end
+local function cycle_width(ws)
     local id, window = focused_window(ws)
     if not id then return ws end
     local display = ws:display_of(id)
-    if not display or not window.frame then return ws end
-    return set_width(ws, window.frame.width > display.width * 0.75 and 0.5 or 1.0)
+    if not display or not window.frame or display.width <= 0 then return ws end
+    return set_width(ws, next_preset(window.frame.width / display.width))
 end
-paneru.bind("ctrl + alt - r", toggle_width)
+paneru.bind("ctrl + alt - r", cycle_width)
+paneru.bind("ctrl + alt - 3", function(ws) return set_width(ws, 1 / 3) end)
 paneru.bind("ctrl + alt - 2", function(ws) return set_width(ws, 0.5) end)
+paneru.bind("ctrl + alt + shift - 3", function(ws) return set_width(ws, 2 / 3) end)
 paneru.bind("ctrl + alt - 0", function(ws) return set_width(ws, 1.0) end)
 paneru.bind("ctrl + alt - f", function(ws) return set_width(ws, 1.0) end)
 
 -- Normalize new columns and explicit gap refreshes. Ordinary focus changes
 -- must never resize columns or alter a manually scrolled viewport.
-local function calibrate_half(_, ws)
+local function calibrate_half(event, ws)
     local id, window = focused_window(ws)
     if not id or calibrated[id] then return ws end
     local display = ws:display_of(id)
     if not display or not window.frame then return ws end
     calibrated[id] = true
+    -- An app's chosen default width wins over the half/full guess.
+    local app_width = app_widths[event and event.bundle_id or window.bundle_id or ""]
+    if app_width then return ws:width(id, app_width) end
     return ws:width(id, window.frame.width <= display.width * 0.75 and 0.5 or 1.0)
 end
 paneru.on("window_focused", function(event, ws)

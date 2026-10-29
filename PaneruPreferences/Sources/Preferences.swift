@@ -23,6 +23,8 @@ struct Preferences: Codable, Equatable, Sendable {
     var magnetStrength: Double = 1.8
     var magnetRange: Double = 0.2
     var infiniteRibbon: Bool = false
+    var floatingFollowsRibbon: Bool = true
+    var trackpadHaptics: Bool = true
     var overviewAnimation: Bool = false
     var focusMode: FocusMode = .hover
     var launchAtLogin: Bool = false
@@ -31,8 +33,10 @@ struct Preferences: Codable, Equatable, Sendable {
     var borderColor: String = BorderColor.defaultHex
     static let defaults = Preferences(speed: 0.65, gap: 6)
 
-    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = [], borderEnabled: Bool = true, borderColor: String = BorderColor.defaultHex, momentum: Double = 1.0, snapSpeed: Double = 0.8, snapVisible: Double = 0.55, momentumDecay: Double = 4.0, snapAnimation: Double = 1.0, snapFullWidth: Bool = true, snapHalfWidth: Bool = true, snapBack: Bool = false, snapExitDistance: Double = 0.12, threeFingerPaging: Bool = true, overviewAnimation: Bool = false, infiniteRibbon: Bool = false, magneticSnapping: Bool = false, magnetStrength: Double = 1.8, magnetRange: Double = 0.2) {
+    init(speed: Double, gap: Int, focusMode: FocusMode = .hover, launchAtLogin: Bool = false, disabledSpaceUUIDs: [String] = [], borderEnabled: Bool = true, borderColor: String = BorderColor.defaultHex, momentum: Double = 1.0, snapSpeed: Double = 0.8, snapVisible: Double = 0.55, momentumDecay: Double = 4.0, snapAnimation: Double = 1.0, snapFullWidth: Bool = true, snapHalfWidth: Bool = true, snapBack: Bool = false, snapExitDistance: Double = 0.12, threeFingerPaging: Bool = true, overviewAnimation: Bool = false, infiniteRibbon: Bool = false, magneticSnapping: Bool = false, magnetStrength: Double = 1.8, magnetRange: Double = 0.2, floatingFollowsRibbon: Bool = true, trackpadHaptics: Bool = true) {
         self.speed = speed
+        self.floatingFollowsRibbon = floatingFollowsRibbon
+        self.trackpadHaptics = trackpadHaptics
         self.momentum = momentum
         self.momentumDecay = momentumDecay
         self.snapSpeed = snapSpeed
@@ -75,6 +79,8 @@ struct Preferences: Codable, Equatable, Sendable {
         magnetRange = try values.decodeIfPresent(Double.self, forKey: .magnetRange) ?? 0.2
         infiniteRibbon = try values.decodeIfPresent(Bool.self, forKey: .infiniteRibbon) ?? false
         overviewAnimation = try values.decodeIfPresent(Bool.self, forKey: .overviewAnimation) ?? false
+        floatingFollowsRibbon = try values.decodeIfPresent(Bool.self, forKey: .floatingFollowsRibbon) ?? true
+        trackpadHaptics = try values.decodeIfPresent(Bool.self, forKey: .trackpadHaptics) ?? true
         // Existing installations have only speed and gap. Preserve both values.
         focusMode = try values.decodeIfPresent(FocusMode.self, forKey: .focusMode) ?? .hover
         launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
@@ -98,7 +104,8 @@ struct Preferences: Codable, Equatable, Sendable {
                     snapExitDistance: snapExitDistance.isFinite ? min(0.5, max(0, snapExitDistance)) : 0.12, threeFingerPaging: threeFingerPaging,
                     overviewAnimation: overviewAnimation, infiniteRibbon: infiniteRibbon, magneticSnapping: magneticSnapping,
                     magnetStrength: magnetStrength.isFinite ? min(6, max(0.2, magnetStrength)) : 1.8,
-                    magnetRange: magnetRange.isFinite ? min(0.4, max(0.03, magnetRange)) : 0.2)
+                    magnetRange: magnetRange.isFinite ? min(0.4, max(0.03, magnetRange)) : 0.2,
+                    floatingFollowsRibbon: floatingFollowsRibbon, trackpadHaptics: trackpadHaptics)
     }
 
     func luaSource(disabledSpaceIDs: [UInt64]) -> String {
@@ -115,7 +122,7 @@ struct Preferences: Codable, Equatable, Sendable {
         let excludedIDs = disabledSpaceIDs.map(String.init).joined(separator: ", ")
         return """
         -- Written by RibbonDesk.
-        return { speed = \(speed), momentum = \(momentum), momentum_decay = \(momentumDecay), snap_speed = \(snapSpeed), snap_visible = \(snapVisible), snap_animation = \(snapAnimation), snap_full_width = \(value.snapFullWidth), snap_half_width = \(value.snapHalfWidth), snap_back = \(value.snapBack), snap_exit_distance = \(snapExitDistance), three_finger_paging = \(value.threeFingerPaging), magnetic_snapping = \(value.magneticSnapping), magnet_strength = \(magnetStrength), magnet_range = \(magnetRange), infinite_ribbon = \(value.infiniteRibbon), gap = \(value.gap), focus_follows_mouse = \(value.focusMode == .hover), disabled_spaces = { \(excludedIDs) }, border_enabled = \(value.borderEnabled), border_color = "\(value.borderColor)" }
+        return { speed = \(speed), momentum = \(momentum), momentum_decay = \(momentumDecay), snap_speed = \(snapSpeed), snap_visible = \(snapVisible), snap_animation = \(snapAnimation), snap_full_width = \(value.snapFullWidth), snap_half_width = \(value.snapHalfWidth), snap_back = \(value.snapBack), snap_exit_distance = \(snapExitDistance), three_finger_paging = \(value.threeFingerPaging), magnetic_snapping = \(value.magneticSnapping), magnet_strength = \(magnetStrength), magnet_range = \(magnetRange), infinite_ribbon = \(value.infiniteRibbon), floating_follows_ribbon = \(value.floatingFollowsRibbon), trackpad_haptics = \(value.trackpadHaptics), gap = \(value.gap), focus_follows_mouse = \(value.focusMode == .hover), disabled_spaces = { \(excludedIDs) }, border_enabled = \(value.borderEnabled), border_color = "\(value.borderColor)" }
 
         """
     }

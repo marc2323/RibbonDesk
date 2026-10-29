@@ -697,6 +697,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     // compile error until it is explicitly mapped onto `options` below.
     let MainOptions {
         default_floating: _,
+        floating_follows_ribbon: _,
         focus_follows_mouse: _,
         preserve_scroll_until_click: _,
         disabled_spaces: _,
@@ -737,6 +738,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     } = &raw_opts;
 
     options.set("default_floating", config.default_floating())?;
+    options.set("floating_follows_ribbon", config.floating_follows_ribbon())?;
     options.set("focus_follows_mouse", config.focus_follows_mouse())?;
     options.set("disabled_spaces", config.disabled_spaces())?;
     options.set(
@@ -808,6 +810,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
         magnet_range: _,
         three_finger_paging: _,
         infinite_ribbon: _,
+        haptics: _,
         ribbon_overview: _,
         continuous: _,
         gesture: _,
@@ -829,6 +832,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     swipe.set("magnet_range", config.swipe_magnet_range())?;
     swipe.set("three_finger_paging", config.swipe_three_finger_paging())?;
     swipe.set("infinite_ribbon", config.infinite_ribbon())?;
+    swipe.set("haptics", config.swipe_haptics())?;
     swipe.set("ribbon_overview", config.ribbon_overview())?;
     swipe.set("continuous", config.continuous_swipe())?;
 

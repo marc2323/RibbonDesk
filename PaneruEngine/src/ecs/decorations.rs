@@ -69,6 +69,7 @@ pub(crate) fn track_overlay_motion(
     geometry: Query<(Entity, &Window), With<FocusedMarker>>,
     time: Res<Time>,
     mut settling: ResMut<OverlayMotion>,
+    mut next_wake: ResMut<super::NextWake>,
     mut previous_geometry: Local<Option<(Entity, IRect)>>,
 ) {
     const SETTLE_DELAY: Duration = Duration::from_millis(150);
@@ -95,6 +96,9 @@ pub(crate) fn track_overlay_motion(
             .settle_at
             .filter(|deadline| time.elapsed() < *deadline)
     };
+    if let Some(deadline) = settle_at {
+        next_wake.within(deadline.saturating_sub(time.elapsed()));
+    }
     settling.set_if_neq(OverlayMotion { settle_at });
 }
 
@@ -236,6 +240,7 @@ mod tests {
             .insert_resource(MissionControlActive(false))
             .init_resource::<OverlayMotion>()
             .init_resource::<OverlayState>()
+            .init_resource::<super::super::NextWake>()
             .init_resource::<Updates>()
             .add_systems(
                 Update,

@@ -30,14 +30,14 @@ use crate::ecs::layout::{Column, LayoutStrip};
 use crate::ecs::params::{ActiveDisplay, FrameActivity, Windows};
 use crate::ecs::{
     ActiveWorkspaceMarker, Bounds, BruteforceWindows, FlashMessage, FocusedMarker, Initializing,
-    LowPowerMode, MissionControlActive, Position, QuickReveal, ReadDisplayProperties,
+    LowPowerMode, MissionControlActive, NextWake, Position, QuickReveal, ReadDisplayProperties,
     RestoreWindowState, Scrolling, SendMessageTrigger, SpawnCommandsExt, Unmanaged, WidthRatio,
     WindowProperties,
 };
 use crate::events::{Event, InputEvent};
 use crate::manager::{
     Application, Display, ENHANCED_UI_RESTORE_DELAY, Process, Window, WindowManager, WindowOS,
-    bruteforce_windows, restore_enhanced_ui,
+    bruteforce_windows, next_enhanced_ui_restore, restore_enhanced_ui,
 };
 use crate::overlay::{FlashMessageManager, OverlayManager};
 use crate::platform::input::TapHealth;
@@ -85,17 +85,64 @@ type ResizableWindows<'w, 's> = Query<
 >;
 
 const ANIAMTE_SNAP_THRESHOLD: f32 = 5.0;
-const LOOP_MAX_TIMEOUT_FRAME_ACTIVE_MS: u32 = 16;
 const LOOP_MAX_TIMEOUT_LOWPOWER_MS: u32 = 2000;
 // Real events (input, IPC, workspace changes, ...) wake the pump immediately
-// via `EventLoopWaker`, so this only bounds how late the free-running 1s
-// `on_timer` systems (`recover_lost_focus`, workspace refresh) can land, and
-// how long a dead event tap can go unnoticed between the 30s health sweeps.
-// Kept well under both: with no genuine work to do, this used to run the
-// whole schedule 20 times a second.
-const LOOP_MAX_TIMEOUT_MS: u32 = 500;
+// via `EventLoopWaker`, and systems with a pending deadline request a frame
+// through `NextWake`. This only bounds how late the free-running 1s
+// `on_timer` systems (`recover_lost_focus`, workspace refresh) can land.
+const LOOP_MAX_TIMEOUT_MS: u32 = 1000;
 const TAP_HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const LOOP_TIMEOUT_STEP: u32 = 1;
+/// Launched apps are polled every 200 ms until they become observable.
+const FRESH_PROCESS_POLL: Duration = Duration::from_millis(200);
+/// Used until the display reports its refresh rate, and when it reports none.
+const DEFAULT_FRAME_PERIOD: Duration = Duration::from_micros(16_667);
+/// How often an active pump re-reads the main display's refresh rate.
+const FRAME_PERIOD_REFRESH: Duration = Duration::from_secs(2);
+
+/// Idle backoff: every quiet pass doubles the wait, from 1 ms up to `limit`.
+/// The old +1 ms per pass took two minutes and ~500 frames to reach the cap,
+/// so any app retitling a window once a second held the pump near 44 Hz.
+fn next_idle_timeout(timeout: u32, limit: u32) -> u32 {
+    timeout.saturating_mul(2).clamp(LOOP_TIMEOUT_STEP, limit)
+}
+
+/// Paces animation frames to the display. Frames start one display period
+/// apart, measured from the previous frame's slot rather than from whenever
+/// the last one happened to finish, so motion advances in even steps. A frame
+/// that overran starts the next one immediately and re-bases the cadence.
+#[derive(Debug, Default)]
+pub(crate) struct FramePacer {
+    period: Option<Duration>,
+    period_read: Option<Instant>,
+    last_slot: Option<Instant>,
+}
+
+impl FramePacer {
+    fn period(&mut self, now: Instant) -> Duration {
+        if self
+            .period_read
+            .is_none_or(|read| now.saturating_duration_since(read) >= FRAME_PERIOD_REFRESH)
+        {
+            self.period_read = Some(now);
+            self.period = crate::platform::main_display_frame_period();
+        }
+        self.period.unwrap_or(DEFAULT_FRAME_PERIOD)
+    }
+
+    /// How long to wait for the next frame slot.
+    pub(crate) fn wait(&mut self, now: Instant) -> Duration {
+        let period = self.period(now);
+        let slot = self.last_slot.map_or(now, |last| last + period).max(now);
+        self.last_slot = Some(slot);
+        slot.saturating_duration_since(now)
+    }
+
+    /// Animation stopped: the next one starts a fresh cadence.
+    pub(crate) fn reset(&mut self) {
+        self.last_slot = None;
+    }
+}
 
 /// How long [`pump_events`] may spend draining the incoming channel before it
 /// has to hand the frame back, and how many events it may take in one go.
@@ -505,9 +552,11 @@ pub(super) fn fresh_marker_cleanup(cleanup: TimedOutSpawns, mut commands: Comman
 pub(super) fn timeout_ticker(
     timers: Populated<(Entity, &mut Timeout)>,
     clock: Res<Time>,
+    mut next_wake: ResMut<NextWake>,
     mut commands: Commands,
 ) {
     for (entity, mut timeout) in timers {
+        next_wake.within(timeout.timer.remaining());
         if timeout.timer.is_finished() {
             if let Some(system_id) = timeout.system_id.take() {
                 commands.run_system(system_id);
@@ -699,7 +748,10 @@ pub(crate) fn pump_events(
     incoming_events: Option<NonSend<Receiver<Event>>>,
     platform: Option<NonSendMut<Pin<Box<PlatformCallbacks>>>>,
     activity: FrameActivity,
+    fresh: Query<(), With<FreshMarker>>,
+    mut next_wake: ResMut<NextWake>,
     mut timeout: Local<u32>,
+    mut pacer: Local<FramePacer>,
     mut last_tap_check: Local<Option<Instant>>,
 ) {
     let Some((ref mut platform, incoming_events)) = platform.zip(incoming_events) else {
@@ -707,11 +759,34 @@ pub(crate) fn pump_events(
         return;
     };
 
-    // Deliberately not paced to a frame period: waiting a full period put a
-    // floor under how soon a pump could start, so an event landing right after
-    // one returned had to wait out the rest of it. That latency is worse than
-    // the redundant work skipping the wait costs.
-    platform.pump_cocoa_event_loop(f64::from(*timeout) / 1000.0);
+    let frame_active = activity.mid_frame();
+    let now = Instant::now();
+    let wait = if frame_active {
+        // Something is moving: draw at the display's rate in even steps.
+        pacer.wait(now)
+    } else {
+        pacer.reset();
+        let low_power = low_power_mode.as_ref().is_some_and(|low_power| low_power.0);
+        let limit = if low_power {
+            LOOP_MAX_TIMEOUT_LOWPOWER_MS
+        } else {
+            LOOP_MAX_TIMEOUT_MS
+        };
+        let deadlines = [
+            next_wake.take().map(|at| at.saturating_duration_since(now)),
+            next_enhanced_ui_restore(ENHANCED_UI_RESTORE_DELAY),
+            (!fresh.is_empty()).then_some(FRESH_PROCESS_POLL),
+            last_tap_check
+                .map(|last| (last + TAP_HEALTH_CHECK_INTERVAL).saturating_duration_since(now)),
+        ];
+        deadlines.into_iter().flatten().fold(
+            Duration::from_millis(u64::from((*timeout).min(limit))),
+            Duration::min,
+        )
+    };
+    // Waits on the Cocoa queue; the `EventLoopWaker` ends it early for any
+    // event from another thread, so a long wait never delays input.
+    platform.pump_cocoa_event_loop(wait.as_secs_f64());
 
     let deadline = Instant::now() + PUMP_BUDGET;
     let mut received_events = Vec::new();
@@ -732,8 +807,10 @@ pub(crate) fn pump_events(
         }
 
         // Polled before any timed wait: the Cocoa pump above already did this
-        // frame's sleeping, so a quiet channel used to cost another millisecond.
+        // frame's sleeping. While windows move the waker guarantees a wake
+        // for every send, so the 1 ms batching wait is only worth it at rest.
         let received = match incoming_events.try_recv() {
+            Err(TryRecvError::Empty) if frame_active => Err(RecvTimeoutError::Timeout),
             Err(TryRecvError::Empty) => incoming_events.recv_timeout(Duration::from_millis(1)),
             Err(TryRecvError::Disconnected) => Err(RecvTimeoutError::Disconnected),
             Ok(event) => Ok(event),
@@ -761,25 +838,15 @@ pub(crate) fn pump_events(
     messages.write_batch(received_events);
 
     // Apps whose windows stopped moving get their assistive mode back. The
-    // idle pump wakes at least every `LOOP_MAX_TIMEOUT_MS`, which bounds how
-    // late that can be.
+    // idle wait above ends by the earliest such restore.
     restore_enhanced_ui(ENHANCED_UI_RESTORE_DELAY);
 
-    if drained {
-        let frame_active = activity.mid_frame();
-        let low_power = low_power_mode.is_some_and(|low_power| low_power.0);
-        let timeout_limit = if frame_active {
-            LOOP_MAX_TIMEOUT_FRAME_ACTIVE_MS
-        } else if low_power {
-            LOOP_MAX_TIMEOUT_LOWPOWER_MS
-        } else {
-            LOOP_MAX_TIMEOUT_MS
-        };
-        *timeout = timeout.min(timeout_limit) + LOOP_TIMEOUT_STEP;
+    *timeout = if drained {
+        next_idle_timeout(*timeout, LOOP_MAX_TIMEOUT_LOWPOWER_MS)
     } else {
         // Still backed up: come straight back rather than sleeping on it.
-        *timeout = LOOP_TIMEOUT_STEP;
-    }
+        LOOP_TIMEOUT_STEP
+    };
 
     // macOS can invalidate the event tap while the machine sleeps without ever
     // notifying the callback, which kills every keybinding, click and swipe

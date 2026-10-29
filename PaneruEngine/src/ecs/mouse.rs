@@ -1,10 +1,12 @@
-use bevy::app::{App, Plugin, Update};
+use bevy::app::{App, Plugin, PostUpdate, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::query::With;
+use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs as _;
-use bevy::ecs::system::{Commands, Local, Query, Res, Single};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut, Single};
 use bevy::time::Time;
+use objc2_core_foundation::CGPoint;
 use std::time::{Duration, Instant};
 use tracing::{debug, trace, warn};
 
@@ -13,8 +15,8 @@ use crate::config::Config;
 use crate::ecs::layout::LayoutStrip;
 use crate::ecs::params::{GlobalState, Windows};
 use crate::ecs::{
-    ActiveWorkspaceMarker, DockPosition, MissionControlActive, Position, ScrollPositionHold,
-    Scrolling, SpawnCommandsExt,
+    ActiveWorkspaceMarker, DockPosition, MissionControlActive, NextWake, Position,
+    ScrollPositionHold, Scrolling, SendMessageTrigger, SpawnCommandsExt,
 };
 use bevy::ecs::schedule::common_conditions::on_message;
 
@@ -40,6 +42,14 @@ impl Plugin for MouseEventsPlugin {
         // `run_if` also skips fetching each system's parameters (Windows
         // queries, config, window manager) when there's no input event, which
         // matters for perf.
+        app.init_resource::<TrailingHover>();
+        app.add_systems(
+            PostUpdate,
+            flush_trailing_hover
+                .run_if(|trailing: Res<TrailingHover>| trailing.0.is_some())
+                .run_if(mission_control_inactive)
+                .run_if(super::overview::inactive),
+        );
         app.add_systems(
             Update,
             (
@@ -115,6 +125,33 @@ fn is_in_corner_dead_zone(
     point.x >= bounds.max.x - CORNER_DEAD_ZONE_PX && point.y >= bounds.max.y - CORNER_DEAD_ZONE_PX
 }
 
+/// Minimum interval between hover focus lookups under the pointer.
+const FIND_WINDOW_THROTTLE: Duration = Duration::from_millis(50);
+
+/// The last pointer position a throttled hover lookup skipped, and when the
+/// throttle lets it through.
+#[derive(Default, Resource)]
+pub(crate) struct TrailingHover(Option<(CGPoint, Modifiers, Duration)>);
+
+/// Replays the pointer's resting position once the hover throttle expires.
+fn flush_trailing_hover(
+    mut trailing: ResMut<TrailingHover>,
+    time: Res<Time>,
+    mut next_wake: ResMut<NextWake>,
+    mut commands: Commands,
+) {
+    let Some((point, modifiers, due)) = trailing.0 else {
+        return;
+    };
+    let now = time.elapsed();
+    if now < due {
+        next_wake.within(due.saturating_sub(now));
+        return;
+    }
+    trailing.0 = None;
+    commands.trigger(SendMessageTrigger(Event::MouseMoved { point, modifiers }));
+}
+
 /// Handles mouse moved events.
 ///
 /// If "focus follows mouse" is enabled, this function finds the window under the cursor and
@@ -139,13 +176,14 @@ fn mouse_moved_trigger(
     mut global_state: GlobalState,
     mut commands: Commands,
     mut last_find_query: Local<Option<Duration>>,
+    mut trailing: ResMut<TrailingHover>,
 ) {
-    const FIND_WINDOW_THROTTLE: Duration = Duration::from_millis(50);
-
     for InputEvent(event) in messages.read() {
         let Event::MouseMoved { point, modifiers } = event else {
             continue;
         };
+        // A newer position supersedes any trailing check still waiting.
+        trailing.0 = None;
 
         if config
             .mouse_resize_modifier()
@@ -192,7 +230,11 @@ fn mouse_moved_trigger(
         if let Some(last_time) = *last_find_query
             && now.saturating_sub(last_time) < FIND_WINDOW_THROTTLE
         {
+            // Look again where the pointer is once the throttle expires, so a
+            // pointer that comes to rest inside it still focuses its window.
             trace!("find_window_at_point throttled.");
+            let due = last_time + FIND_WINDOW_THROTTLE;
+            trailing.0 = Some((*point, *modifiers, due));
             continue;
         }
         *last_find_query = Some(now);

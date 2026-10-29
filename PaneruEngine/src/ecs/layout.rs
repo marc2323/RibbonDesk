@@ -245,6 +245,11 @@ impl Plugin for LayoutEventsPlugin {
                     .after(super::triggers::apply_window_positions)
                     .before(super::workspace::show_active_workspace)
                     .run_if(not(resource_exists::<Initializing>)),
+                super::floating::follow_ribbon_anchors
+                    .after(position_layout_windows)
+                    .after(super::systems::window_moved_update_frame)
+                    .before(super::workspace::show_active_workspace)
+                    .run_if(not(resource_exists::<Initializing>)),
             ),
         );
     }
@@ -1784,11 +1789,13 @@ fn position_layout_windows(
     }
 
     for (entity, window, layout_position, mut position, mut bounds) in &mut window_queries.p1() {
+        // Floating windows have a layout slot too but no strip: skip them
+        // without dropping the rest of this frame's moves.
         let Some(context) = strip_contexts.get(&entity) else {
-            return;
+            continue;
         };
         let Ok((display, dock)) = displays.get(context.display_entity) else {
-            return;
+            continue;
         };
         let viewport = display.actual_display_bounds(dock, &config);
         // Gets 80% of the display height as threshold.

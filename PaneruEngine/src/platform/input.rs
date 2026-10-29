@@ -17,6 +17,7 @@ use std::ffi::c_void;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::ptr::null_mut;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use stdext::function_name;
@@ -171,6 +172,28 @@ static LUA_KEYBINDS: LazyLock<ArcSwap<Vec<(u8, Modifiers, u32)>>> =
 #[cfg(feature = "lua")]
 pub fn set_lua_keybinds(keys: Vec<(u8, Modifiers, u32)>) {
     LUA_KEYBINDS.store(Arc::new(keys));
+}
+
+/// Whether a Lua `paneru.on("mouse_moved", ...)` handler is registered, so the
+/// tap keeps forwarding pointer motion for it.
+static SCRIPT_WANTS_MOUSE_MOVED: AtomicBool = AtomicBool::new(false);
+
+/// Called from the main thread whenever the script's handler set is read.
+#[cfg(feature = "lua")]
+pub fn set_script_wants_mouse_moved(wanted: bool) {
+    SCRIPT_WANTS_MOUSE_MOVED.store(wanted, Ordering::Relaxed);
+}
+
+/// Pointer motion only matters to hover focus, modifier resizing, edge warping
+/// and scripts. With none of them in use, forwarding every move would run a
+/// full schedule per mouse event for nothing.
+fn mouse_moved_wanted(config: &Config, modifiers: Modifiers) -> bool {
+    config.focus_follows_mouse()
+        || config.horizontal_mouse_warp().is_some()
+        || config
+            .mouse_resize_modifier()
+            .is_some_and(|modifier| modifier.matches(modifiers))
+        || SCRIPT_WANTS_MOUSE_MOVED.load(Ordering::Relaxed)
 }
 
 const SWIPE_THRESHOLD: f64 = 0.001;
@@ -604,6 +627,9 @@ impl InputHandler {
                 events.send(Event::MouseDragged { point, modifiers })
             }
             CGEventType::MouseMoved => {
+                if !mouse_moved_wanted(&self.config, modifiers) {
+                    return false;
+                }
                 let point = CGEvent::location(Some(event));
                 events.send(Event::MouseMoved { point, modifiers })
             }

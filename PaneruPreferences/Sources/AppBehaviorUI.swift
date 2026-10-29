@@ -72,6 +72,17 @@ final class AppBehaviorModel: ObservableObject {
         save(next, message: "Saved for \(name). Applies to future windows.")
     }
 
+    func setWidth(_ width: AppWindowWidth, bundleID: String, name: String) {
+        var next = data
+        next.discover(bundleID: bundleID, name: name)
+        guard let index = next.apps.firstIndex(where: { $0.bundleID == bundleID }),
+            next.apps[index].width != width
+        else { return }
+        next.apps[index].width = width
+        next.record(bundleID: bundleID, name: name, action: "Width: \(width.label)")
+        save(next, message: "Saved for \(name). Applies when its windows join the Ribbon.")
+    }
+
     func setPrompts(_ enabled: Bool) {
         var next = data
         next.promptForNewWindows = enabled
@@ -96,7 +107,10 @@ final class AppBehaviorModel: ObservableObject {
 
     func resetPreferences() {
         var next = data
-        for index in next.apps.indices { next.apps[index].behavior = .inherit }
+        for index in next.apps.indices {
+            next.apps[index].behavior = .inherit
+            next.apps[index].width = .automatic
+        }
         next.promptForNewWindows = false
         next.record(bundleID: "", name: "All apps", action: "Reset preferences: float by default; prompts off")
         save(next, message: "App preferences reset. Future windows float until Control–Option–T.")
@@ -143,7 +157,7 @@ struct AppBehaviorView: View {
             logHeader
             logList
             footer
-        }.padding(20).frame(minWidth: 720, minHeight: 620)
+        }.padding(20).frame(minWidth: 820, minHeight: 620)
             .background(Color(nsColor: .windowBackgroundColor))
             .disabled(!model.canEdit)
     }
@@ -184,6 +198,15 @@ struct AppBehaviorView: View {
             ) {
                 ForEach(AppWindowBehavior.allCases) { Text($0.label).tag($0) }
             }.labelsHidden().frame(width: 235)
+            Picker(
+                "Width for \(app.name)",
+                selection: Binding(
+                    get: { model.data.width(for: app.bundleID) },
+                    set: { model.setWidth($0, bundleID: app.bundleID, name: app.name) })
+            ) {
+                ForEach(AppWindowWidth.allCases) { Text($0.label).tag($0) }
+            }.labelsHidden().frame(width: 150)
+                .help("Column width when this app's windows join the Ribbon.")
         }.padding(.vertical, 3)
     }
 

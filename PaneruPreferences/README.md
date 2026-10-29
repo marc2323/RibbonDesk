@@ -54,6 +54,11 @@ how each app's future windows open:
 | **Always start floating** | New windows float without a prompt. The hotkey can still add one. |
 | **Ask each time** | New windows float while a small prompt offers Add to Ribbon or Keep Floating. |
 
+Each app also has a **width** choice: Automatic, One third, Half, Two thirds or
+Full width. It applies when that app's windows join the Ribbon, whether they open
+there or are added with Control–Option–T. Automatic keeps the half/full guess
+from the window's own size.
+
 Prompts are off by default. **Remember for this app** in a prompt saves that
 choice for future windows; ordinary hotkey toggles affect only the current
 window. Rules use stable app bundle identifiers. Apps appear as their windows
@@ -74,6 +79,7 @@ export are stored in `~/.config/paneru/app-behavior.json` and `app-behavior.lua`
 | **Overview** | Open Ribbon Overview. |
 | **Quit** | Stop the engine and close the companion. |
 | **Overview animation** | Off switches instantly; on restores the 160 ms zoom. Reduce Motion disables the zoom. |
+| **Floating follows ribbon** | On by default. A floating window keeps its place relative to the Ribbon windows beneath it and scrolls with them, wrapping with an infinite ribbon. Drag it to give it a new place. Off leaves floating windows fixed on screen. |
 
 Overview controls are listed in the [main README](../README.md#ribbon-overview).
 The view uses one-third scale; unusually short displays can impose a smaller
@@ -108,6 +114,10 @@ preserves window order, and applies immediately. It is off by default and saves
 separately from feel presets. A single column retains its normal scrolling;
 short native ribbons leave room for a window to leave the screen before it returns.
 Overview can repeat previews across a short ribbon while sharing their cached images.
+
+**Trackpad haptics** gives a light click under your finger when a released swipe
+commits: a page with three-finger paging, or an edge caught by a magnet or flick
+snap. It needs a Force Touch trackpad and is on by default.
 
 **Three-finger paging** is enabled by default. Each horizontal three-finger swipe
 advances exactly one window alignment, follows your fingers, and finishes when

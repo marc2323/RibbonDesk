@@ -1047,3 +1047,47 @@ fn switch_virtual_workspace(delta: f64, config: &Config, commands: &mut Commands
         command: Command::Window(Operation::Virtual(direction)),
     }));
 }
+
+/// Snaps that have played a trackpad click, counted so tests can observe them
+/// without a Force Touch trackpad.
+#[derive(Debug, Default, bevy::ecs::resource::Resource)]
+pub struct SnapHaptics {
+    pub played: u32,
+}
+
+/// A light trackpad click when a released swipe commits to a destination: a
+/// page on three-finger paging, or a magnet or flick snap catching an edge.
+/// Read-only on the scroll state, after every scroll system has run.
+type ChangedScrolls<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static Scrolling),
+    (With<LayoutStrip>, bevy::ecs::query::Changed<Scrolling>),
+>;
+
+pub(super) fn play_snap_haptics(
+    strips: ChangedScrolls,
+    config: Res<Config>,
+    mut haptics: bevy::ecs::system::ResMut<SnapHaptics>,
+    mut finished: bevy::ecs::lifecycle::RemovedComponents<Scrolling>,
+    mut targeted: Local<bevy::ecs::entity::EntityHashSet>,
+) {
+    // A settled gesture's commit must not hide the next gesture's, even when
+    // the next one starts and commits within a single frame.
+    for entity in finished.read() {
+        targeted.remove(&entity);
+    }
+    for (entity, scroll) in &strips {
+        let committed = !scroll.is_user_swiping && scroll.snap_target.is_some();
+        let newly = if committed {
+            targeted.insert(entity)
+        } else {
+            targeted.remove(&entity);
+            false
+        };
+        if newly && config.swipe_haptics() {
+            haptics.played += 1;
+            crate::platform::perform_alignment_haptic();
+        }
+    }
+}

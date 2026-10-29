@@ -98,6 +98,8 @@ struct SettingsView: View {
         return section("Scrolling") {
             toggleRow("Infinite ribbon", detail: "Loop both ends", value: $model.infiniteRibbon)
                 .help("Keep scrolling past the last window to reach the first, or past the first to reach the last, in the ribbon and Overview.")
+            toggleRow("Trackpad haptics", detail: "Click on snap", value: $model.trackpadHaptics)
+                .help("A light click under your finger when a page commits or a magnet catches. Needs a Force Touch trackpad.")
             toggleRow("Three-finger paging", detail: model.magneticSnapping ? "Magnets active" : "One snap", value: $model.threeFingerPaging)
                 .disabled(model.magneticSnapping)
             caption(model.magneticSnapping
@@ -133,6 +135,8 @@ struct SettingsView: View {
                     .accessibilityLabel("Quit RibbonDesk")
             }.frame(height: 22).disabled(model.applying || model.engineBusy)
             toggleRow("Overview animation", detail: "Off switches instantly", value: $model.overviewAnimation)
+            toggleRow("Floating follows ribbon", detail: "Scroll together", value: $model.floatingFollowsRibbon)
+                .help("Floating windows keep their place relative to the ribbon windows beneath them and move with the ribbon when you scroll. Drag a floating window to set a new place.")
             Button("App Behavior…") { model.appBehaviorAction?() }
                 .help("Choose how new windows open, remember app choices, and view the activity log.")
             if !model.currentDesktopEnabled { caption("Enable This Desktop to start window management here.") }

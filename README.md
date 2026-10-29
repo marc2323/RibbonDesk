@@ -103,9 +103,11 @@ Hold **Control + Option** while using these keys:
 | **H / L** or **← / →** | Previous / next window |
 | **J / K** | Move a window left/right and follow it |
 | **Home / End** | First / last window |
+| **3** | One-third width |
 | **2** | Half width |
+| **Shift–3** | Two-thirds width |
 | **0 / F** | Full width |
-| **R** | Toggle half / full width |
+| **R** | Step through ⅓, ½, ⅔ and full width |
 | **T** | Toggle floating |
 | **O** | Open Ribbon Overview |
 | **S** | Open Settings |

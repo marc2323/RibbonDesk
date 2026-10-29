@@ -163,6 +163,59 @@ with existing preferences and feel presets but no longer gate snap candidates.
 Classic speed/visibility thresholds, explicit off settings, and Ribbon membership
 still apply.
 
+### Floating windows that follow the Ribbon
+
+With `floating_follows_ribbon` (the companion's **Floating follows ribbon**,
+on by default) each floating window carries a `RibbonAnchor`: the active strip
+and the window's x offset from that strip's origin, captured when it starts
+floating and its own placement animation has finished. While the strip moves
+(a swipe, coast, snap, reveal, or wrap), and for 300 ms afterwards, the window
+is placed at that offset directly every frame. On an infinite ribbon it wraps
+with the columns, and it parks as an edge sliver once wholly off screen, so it
+returns with the windows it was over. A frame that differs while the strip is
+still is the user's drag (or the app's own move) and re-anchors the window.
+Late move notifications for frames the strip has already left fall inside the
+300 ms window and are corrected rather than read as a drag. Vertical position
+is never changed. The system is `ecs/floating.rs`; it reads cached ECS
+geometry only and does no work while nothing moves.
+
+### Event-loop pacing
+
+The idle pump doubles its wait after each quiet pass (1, 2, 4 … ms) up to 1 s,
+instead of adding 1 ms per pass. It also ends the wait at the earliest
+requested deadline: systems with a pending timer (`Timeout` components,
+the outline's 150 ms quiet period, display reconciliation, the restore grace,
+the trailing hover check) call `NextWake::within`, and the pump adds the
+enhanced-UI restore, the 200 ms launched-app poll while one is pending, and
+the tap health check. Real events still wake it at once through
+`EventLoopWaker`. While anything moves, frames are paced to the main display's
+refresh rate (`NSScreen.maximumFramesPerSecond`, re-read every 2 s): each
+frame starts one period after the previous slot, which spaces coast and snap
+steps evenly at 60 or 120 Hz. The 1 ms batching wait at the end of each drain
+is skipped while moving.
+
+The event tap forwards pointer motion only when hover focus, edge warping, a
+held resize modifier, or a Lua `mouse_moved` handler needs it. A pointer that
+comes to rest inside the 50 ms hover throttle is looked up once more when the
+throttle expires. With only the companion's behavior-only subscription, the
+broadcast system skips frames without window lifecycle events. A floating
+window's layout slot no longer ends `position_layout_windows` early, which
+could leave other windows unmoved for a frame.
+
+### Widths and haptics
+
+Width presets are ⅓, ½, ⅔ and full. Control–Option–3, 2, Shift–3 and 0 set
+them; Control–Option–R steps through them. App Behavior stores an optional
+width per app and exports it as the app rule's `width`, which the engine applies
+when the window joins the Ribbon by opening there or through Control–Option–T;
+the companion's calibration then keeps that width instead of guessing.
+
+`swipe.haptics` plays `NSHapticFeedbackPattern.alignment` once when a released
+swipe commits to a snap destination (a page, a magnet catch, or a flick snap).
+The system only reads `Scrolling` changes and counts plays in `SnapHaptics`
+for tests. Whether macOS delivers the click while another app is frontmost
+needs confirming on a Force Touch trackpad.
+
 ### Viewport and focus
 
 A per-workspace `ScrollPositionHold` preserves the viewport through hover,
