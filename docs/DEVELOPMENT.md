@@ -197,7 +197,11 @@ is skipped while moving.
 The event tap forwards pointer motion only when hover focus, edge warping, a
 held resize modifier, or a Lua `mouse_moved` handler needs it. A pointer that
 comes to rest inside the 50 ms hover throttle is looked up once more when the
-throttle expires. With only the companion's behavior-only subscription, the
+throttle expires. When focus moves without hovering (a Mission Control or App
+Exposé pick, Ribbon Overview, Cmd-Tab, keyboard), hover focus waits until the
+pointer travels 10 px from where it rested, so the window under a Mission
+Control thumbnail cannot take focus back from the one picked. With only the
+companion's behavior-only subscription, the
 broadcast system skips frames without window lifecycle events. A floating
 window's layout slot no longer ends `position_layout_windows` early, which
 could leave other windows unmoved for a frame.

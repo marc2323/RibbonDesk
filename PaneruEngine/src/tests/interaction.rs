@@ -1993,6 +1993,40 @@ fn mouse_outside_corner_still_changes_focus() {
 }
 
 #[test]
+fn outside_focus_change_pauses_hover_until_pointer_moves() {
+    use crate::events::Event;
+    use crate::platform::Modifiers;
+    use objc2_core_foundation::CGPoint;
+
+    // A Mission Control pick focuses window 2 natively while the pointer rests
+    // at the mock cursor's origin, where the real layout has another window.
+    // Pointer events at that resting spot must not hand focus back by hover;
+    // a genuine move must.
+    let commands = vec![
+        Event::MenuOpened { window_id: 0 },
+        Event::WindowFocused { window_id: 2 },
+        Event::MouseMoved {
+            point: CGPoint { x: 0.0, y: 0.0 },
+            modifiers: Modifiers::empty(),
+        },
+        Event::MouseMoved {
+            point: CGPoint { x: 500.0, y: 400.0 },
+            modifiers: Modifiers::empty(),
+        },
+    ];
+
+    TestHarness::new()
+        .with_windows(3)
+        .on_iteration(2, |world, _state| {
+            assert_focused!(world, 2);
+        })
+        .on_iteration(3, |world, _state| {
+            assert_focused!(world, 1);
+        })
+        .run(commands);
+}
+
+#[test]
 fn toggle_floating_layer_flips_state() {
     fn current_layer(world: &mut World) -> FloatingLayer {
         let mut query = world.query::<&FloatingLayer>();

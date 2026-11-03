@@ -43,6 +43,7 @@ impl Plugin for MouseEventsPlugin {
         // queries, config, window manager) when there's no input event, which
         // matters for perf.
         app.init_resource::<TrailingHover>();
+        app.init_resource::<HoverPause>();
         app.add_systems(
             PostUpdate,
             flush_trailing_hover
@@ -125,6 +126,37 @@ fn is_in_corner_dead_zone(
     point.x >= bounds.max.x - CORNER_DEAD_ZONE_PX && point.y >= bounds.max.y - CORNER_DEAD_ZONE_PX
 }
 
+/// How far the pointer must travel from where it rested when focus last moved
+/// without it before hover focus may move focus again.
+const HOVER_RESUME_DISTANCE: f64 = 10.0;
+
+/// Where the pointer rested when focus moved by some other means than hovering
+/// (a Mission Control or App Exposé pick, Ribbon Overview, Cmd-Tab, keyboard).
+///
+/// Mission Control leaves the pointer over the thumbnail it picked, which
+/// usually sits on top of a different real window once the native layout
+/// returns. macOS and the hover throttle then deliver pointer events at that
+/// resting spot without the user moving, and hover focus would hand focus to
+/// whichever window happens to be there. Hover focus waits until the pointer
+/// genuinely moves away instead.
+#[derive(Default, Resource)]
+pub(crate) struct HoverPause(pub(crate) Option<CGPoint>);
+
+impl HoverPause {
+    /// Whether hover focus must ignore the pointer at `point`. A pointer that
+    /// has left the resting spot ends the pause.
+    fn holds(&mut self, point: &CGPoint) -> bool {
+        let Some(rest) = self.0 else {
+            return false;
+        };
+        if (point.x - rest.x).hypot(point.y - rest.y) < HOVER_RESUME_DISTANCE {
+            return true;
+        }
+        self.0 = None;
+        false
+    }
+}
+
 /// Minimum interval between hover focus lookups under the pointer.
 const FIND_WINDOW_THROTTLE: Duration = Duration::from_millis(50);
 
@@ -177,6 +209,7 @@ fn mouse_moved_trigger(
     mut commands: Commands,
     mut last_find_query: Local<Option<Duration>>,
     mut trailing: ResMut<TrailingHover>,
+    mut hover_pause: ResMut<HoverPause>,
 ) {
     for InputEvent(event) in messages.read() {
         let Event::MouseMoved { point, modifiers } = event else {
@@ -207,6 +240,10 @@ fn mouse_moved_trigger(
         }
 
         if !config.focus_follows_mouse() {
+            continue;
+        }
+        if hover_pause.holds(point) {
+            trace!("hover focus paused until the pointer leaves {point:?}");
             continue;
         }
         if global_state.ffm_flag().is_some() {
@@ -609,6 +646,25 @@ mod tests {
             },
             20,
         )
+    }
+
+    #[test]
+    fn hover_pause_holds_until_the_pointer_leaves() {
+        let mut pause = HoverPause(Some(CGPoint::new(400.0, 300.0)));
+        // Repeated events at the resting spot, and a small trackpad jitter.
+        assert!(pause.holds(&CGPoint::new(400.0, 300.0)));
+        assert!(pause.holds(&CGPoint::new(406.0, 304.0)));
+        assert!(pause.0.is_some());
+        // A real move ends the pause, and returning does not restart it.
+        assert!(!pause.holds(&CGPoint::new(440.0, 300.0)));
+        assert!(pause.0.is_none());
+        assert!(!pause.holds(&CGPoint::new(400.0, 300.0)));
+    }
+
+    #[test]
+    fn hover_pause_without_resting_spot_never_holds() {
+        let mut pause = HoverPause::default();
+        assert!(!pause.holds(&CGPoint::new(0.0, 0.0)));
     }
 
     #[test]
