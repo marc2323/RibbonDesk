@@ -439,6 +439,16 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 
 ### Release validation record
 
+**v1.24 (build 28)** keeps a window picked in Mission Control, App Exposé,
+Ribbon Overview, Cmd-Tab or by keyboard focused. Mission Control leaves the
+pointer over another window, and hover focus used to take focus back from the
+pick. Hover focus now waits until the pointer travels 10 px; a settled swipe
+ends the wait.
+
+Validation covers 535 engine tests, strict Clippy and formatting, the vendored
+transport tests, and the installer checks. On the owner's Mac, picks from
+Mission Control, App Exposé and Ribbon Overview were checked by hand.
+
 **v1.23 (build 27)** lets floating windows follow the Ribbon, paces the engine
 loop (doubling idle backoff, deadline-based waits, display-rate animation
 frames, no batching wait while moving, filtered pointer motion, quieter
