@@ -10,7 +10,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs as _;
-use bevy::ecs::system::{Commands, Populated, Query, Res, Single};
+use bevy::ecs::system::{Commands, Populated, Query, Res, ResMut, Single};
 use bevy::math::IRect;
 use bevy::prelude::Event as BevyEvent;
 use bevy::time::common_conditions::on_timer;
@@ -134,6 +134,8 @@ fn maintain_focus_singleton(
     trigger: On<Add, FocusedMarker>,
     windows: Query<(Entity, Has<FocusedMarker>), With<Window>>,
     mut config: GlobalState,
+    window_manager: Option<Res<WindowManager>>,
+    hover_pause: Option<ResMut<super::mouse::HoverPause>>,
     mut commands: Commands,
 ) {
     let focused_entity = trigger.event().entity;
@@ -152,6 +154,12 @@ fn maintain_focus_singleton(
     // Skip reshuffle if caused by mouse - because then it won't center.
     if config.ffm_flag().is_none() {
         config.set_skip_reshuffle(false);
+        // Focus moved without hovering (Mission Control, Overview, Cmd-Tab,
+        // keyboard). Keep hover focus from taking it back until the pointer
+        // actually moves.
+        if let Some(mut hover_pause) = hover_pause {
+            hover_pause.0 = window_manager.and_then(|manager| manager.cursor_position());
+        }
     }
     config.set_ffm_flag(None);
 }

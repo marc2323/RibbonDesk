@@ -5,7 +5,7 @@ use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::query::{With, Without};
 use bevy::ecs::schedule::IntoScheduleConfigs as _;
-use bevy::ecs::system::{Commands, Local, Populated, Query, Res, Single};
+use bevy::ecs::system::{Commands, Local, Populated, Query, Res, ResMut, Single};
 use bevy::math::IRect;
 use bevy::time::Time;
 use std::time::{Duration, Instant};
@@ -356,6 +356,7 @@ pub(super) fn swiping_timeout(
     config: Res<Config>,
     time: Res<Time>,
     window_manager: Res<WindowManager>,
+    mut hover_pause: Option<ResMut<super::mouse::HoverPause>>,
     mut commands: Commands,
 ) {
     const FINGER_LIFT_THRESHOLD: Duration = Duration::from_millis(70);
@@ -378,6 +379,12 @@ pub(super) fn swiping_timeout(
         {
             if let Ok(mut entity_commands) = commands.get_entity(entity) {
                 entity_commands.try_remove::<Scrolling>();
+            }
+            // The swipe moved the ribbon under a resting pointer on purpose,
+            // so the window now under it takes focus even if hover focus was
+            // paused by an earlier Mission Control or keyboard pick.
+            if let Some(hover_pause) = hover_pause.as_mut() {
+                hover_pause.0 = None;
             }
             if let Some(point) = window_manager.cursor_position() {
                 commands.trigger(SendMessageTrigger(Event::MouseMoved {

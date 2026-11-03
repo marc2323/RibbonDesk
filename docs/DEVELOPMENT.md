@@ -197,7 +197,13 @@ is skipped while moving.
 The event tap forwards pointer motion only when hover focus, edge warping, a
 held resize modifier, or a Lua `mouse_moved` handler needs it. A pointer that
 comes to rest inside the 50 ms hover throttle is looked up once more when the
-throttle expires. With only the companion's behavior-only subscription, the
+throttle expires. When focus moves without hovering (a Mission Control or App
+Exposé pick, Ribbon Overview, Cmd-Tab, keyboard), hover focus waits until the
+pointer travels 10 px from where it rested, so the window under a Mission
+Control thumbnail cannot take focus back from the one picked. A settled swipe
+ends the pause, so the window it slides under the pointer still takes focus.
+With only the
+companion's behavior-only subscription, the
 broadcast system skips frames without window lifecycle events. A floating
 window's layout slot no longer ends `position_layout_windows` early, which
 could leave other windows unmoved for a frame.
@@ -432,6 +438,16 @@ cargo test --locked --manifest-path PaneruEngine/vendor/async-mach-ports/Cargo.t
 ```
 
 ### Release validation record
+
+**v1.24 (build 28)** keeps a window picked in Mission Control, App Exposé,
+Ribbon Overview, Cmd-Tab or by keyboard focused. Mission Control leaves the
+pointer over another window, and hover focus used to take focus back from the
+pick. Hover focus now waits until the pointer travels 10 px; a settled swipe
+ends the wait.
+
+Validation covers 535 engine tests, strict Clippy and formatting, the vendored
+transport tests, and the installer checks. On the owner's Mac, picks from
+Mission Control, App Exposé and Ribbon Overview were checked by hand.
 
 **v1.23 (build 27)** lets floating windows follow the Ribbon, paces the engine
 loop (doubling idle backoff, deadline-based waits, display-rate animation
