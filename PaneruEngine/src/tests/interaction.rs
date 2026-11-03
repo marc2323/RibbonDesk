@@ -13,7 +13,7 @@ use crate::ecs::{
 };
 use crate::ecs::{RepositionMarker, SpawnWindowTrigger};
 use crate::events::Event;
-use crate::manager::{Origin, Size, Window};
+use crate::manager::{Origin, Size, Window, WindowManager};
 use crate::platform::{Modifiers, WinID};
 use crate::{assert_focused, assert_window_at, assert_window_size};
 
@@ -1999,14 +1999,14 @@ fn outside_focus_change_pauses_hover_until_pointer_moves() {
     use objc2_core_foundation::CGPoint;
 
     // A Mission Control pick focuses window 2 natively while the pointer rests
-    // at the mock cursor's origin, where the real layout has another window.
-    // Pointer events at that resting spot must not hand focus back by hover;
-    // a genuine move must.
+    // over window 1, where the picked thumbnail sat. Pointer events at that
+    // resting spot must not hand focus to window 1 by hover; a genuine move
+    // must.
     let commands = vec![
         Event::MenuOpened { window_id: 0 },
         Event::WindowFocused { window_id: 2 },
         Event::MouseMoved {
-            point: CGPoint { x: 0.0, y: 0.0 },
+            point: CGPoint { x: 400.0, y: 400.0 },
             modifiers: Modifiers::empty(),
         },
         Event::MouseMoved {
@@ -2017,6 +2017,14 @@ fn outside_focus_change_pauses_hover_until_pointer_moves() {
 
     TestHarness::new()
         .with_windows(3)
+        // The app reports window 2 focused, as it does after a native pick,
+        // and the pointer rests over window 1.
+        .on_iteration(0, |world, state| {
+            state.set_focused_window(2);
+            world
+                .resource::<WindowManager>()
+                .warp_mouse(Origin::new(400, 400));
+        })
         .on_iteration(2, |world, _state| {
             assert_focused!(world, 2);
         })
