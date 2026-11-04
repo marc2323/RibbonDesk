@@ -301,7 +301,7 @@ https://github.com/karinushka/paneru/blob/3790b01f8d65df5d9000142db7cf25f9270dcc
 | `mouse_nextdisplay` | Warp mouse cursor to the next monitor. |
 | `window_snap` | Snap an overflowing window into the viewport. |
 | `window_raise_floating` | Make the floating windows layer visible on the current workspace. |
-| `window_togglefloatlayer` | Selectively move the floating windows in front or behind of the workspace windows. |
+| `window_togglefloatlayer` | Selectively move the floating windows in front or behind of the workspace windows. With `floating_on_top`, sending them behind stops keeping them on top on that workspace until toggled back. |
 | `window_copyrule` | Copy a window rule template for the focused window to the clipboard. |
 | `quit` | Exit Paneru. |
 | `restart` | Restart the Paneru service (`paneru restart`). |

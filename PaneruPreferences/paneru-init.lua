@@ -36,6 +36,7 @@ local config = {
   ["options"] = {
     ["default_floating"] = true,
     ["floating_follows_ribbon"] = preferences.floating_follows_ribbon ~= false,
+    ["floating_on_top"] = preferences.floating_on_top ~= false,
     ["preset_column_widths"] = { 0.5, 1.0 },
     ["window_resize_cycle"] = true,
     ["focus_follows_mouse"] = focus_follows_mouse,

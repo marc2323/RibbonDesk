@@ -5,24 +5,38 @@
 //! or was last dragged. Scrolling the ribbon carries it along by the same
 //! distance, wrapping with the columns on an infinite ribbon and parking at a
 //! screen edge sliver like they do.
+//!
+//! With `floating_on_top` they also stay above the ribbon's tiles in the
+//! window order: when a click or a focus change puts a tile over a floating
+//! window, the floating window is lifted back on top and the tile keeps focus.
 
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::{Entity, EntityHashMap};
 use bevy::ecs::hierarchy::ChildOf;
-use bevy::ecs::query::{Has, With, Without};
-use bevy::ecs::system::{Commands, Local, Populated, Query, Res};
+use bevy::ecs::message::MessageReader;
+use bevy::ecs::query::{Added, Has, With, Without};
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::{Commands, Local, Populated, Query, Res, ResMut};
 use bevy::math::IRect;
 use bevy::time::Time;
+use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{Level, instrument, trace};
+use tracing::{Level, debug, instrument, trace};
 
+use super::display::FloatingLayer;
+use super::focus::FocusHistory;
 use super::layout::{LayoutStrip, PARKED_STRIP_SLIVER, looped_window_x};
+use super::params::{ActiveDisplay, Windows};
 use super::{
-    ActiveWorkspaceMarker, Bounds, DockPosition, Position, RepositionMarker, Scrolling, Unmanaged,
+    ActiveWorkspaceMarker, Bounds, DockPosition, FocusedMarker, MissionControlActive,
+    MouseHeldMarker, NextWake, Position, RepositionMarker, Scrolling, Unmanaged,
 };
+use crate::commands::visible_floating_entities;
 use crate::config::Config;
-use crate::manager::{Display, Origin, Window};
+use crate::events::{Event, InputEvent};
+use crate::manager::{Application, Display, Origin, Window, WindowManager};
+use crate::platform::WinID;
 
 /// How long after the ribbon last moved a floating window's frame still counts
 /// as the ribbon's doing. Move notifications for frames the strip has already
@@ -203,6 +217,171 @@ pub(super) fn follow_ribbon_anchors(
     }
 }
 
+/// How long after a click or a focus change the window order is checked, so
+/// the window server has finished raising whatever was clicked and our own
+/// focus raises have landed.
+pub(crate) const RESTACK_DELAY: Duration = Duration::from_millis(120);
+
+/// When the window order is next checked for floating windows a tile has
+/// covered, if a click or a focus change asked for it.
+#[derive(Default, Resource)]
+pub(crate) struct FloatRestackDue(pub(crate) Option<Duration>);
+
+/// Schedules a stacking check after a click or after focus lands on a tile.
+pub(super) fn request_float_restack(
+    mut input: MessageReader<InputEvent>,
+    focused_tiles: Query<(), (Added<FocusedMarker>, With<Window>, Without<Unmanaged>)>,
+    time: Res<Time>,
+    mut due: ResMut<FloatRestackDue>,
+) {
+    let clicked = input.read().fold(false, |clicked, InputEvent(event)| {
+        clicked || matches!(event, Event::MouseUp { .. })
+    });
+    if clicked || !focused_tiles.is_empty() {
+        due.0 = Some(time.elapsed() + RESTACK_DELAY);
+    }
+}
+
+/// Which floating windows sit below a tile they overlap, deepest first so
+/// raising them in order keeps their order among themselves. `order` is the
+/// window server's on-screen list, front to back.
+pub(crate) fn buried_floats(
+    floats: &[(Entity, WinID, IRect)],
+    tiles: &[(WinID, IRect)],
+    order: &[WinID],
+) -> Vec<Entity> {
+    let rank: HashMap<WinID, usize> = order.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+    let mut buried = floats
+        .iter()
+        .filter_map(|(entity, id, frame)| {
+            let depth = *rank.get(id)?;
+            tiles
+                .iter()
+                .any(|(tile, tile_frame)| {
+                    let overlap = frame.intersect(*tile_frame);
+                    overlap.width() > 0
+                        && overlap.height() > 0
+                        && rank.get(tile).is_some_and(|tile_depth| *tile_depth < depth)
+                })
+                .then_some((depth, *entity))
+        })
+        .collect::<Vec<_>>();
+    buried.sort_unstable_by_key(|(depth, _)| std::cmp::Reverse(*depth));
+    buried.into_iter().map(|(_, entity)| entity).collect()
+}
+
+/// Lifts floating windows a tile has covered back above it.
+///
+/// An accessibility raise cannot put a window above another app's frontmost
+/// window, so each buried floating window is focused with a raise, and then
+/// focus goes back to the tile without raising it. The tile keeps focus and
+/// the floating windows end up on top. Toggling the floating layer behind the
+/// tiles on a workspace turns this off there.
+#[allow(clippy::too_many_arguments)]
+#[instrument(level = Level::DEBUG, skip_all)]
+pub(super) fn keep_floating_on_top(
+    mut due: ResMut<FloatRestackDue>,
+    time: Res<Time>,
+    mut next_wake: ResMut<NextWake>,
+    windows: Windows,
+    active_display: ActiveDisplay,
+    strips: Query<Has<Scrolling>, With<ActiveWorkspaceMarker>>,
+    mouse_held: Query<(), With<MouseHeldMarker>>,
+    layers: Query<&FloatingLayer>,
+    apps: Query<&Application>,
+    window_manager: Res<WindowManager>,
+    focus_history: Res<FocusHistory>,
+    mission_control: Res<MissionControlActive>,
+) {
+    let Some(at) = due.0 else {
+        return;
+    };
+    let now = time.elapsed();
+    if now < at {
+        next_wake.within(at - now);
+        return;
+    }
+    // Not while the ribbon or a window is in the user's hands: check again
+    // once they let go.
+    if strips.iter().any(|scrolling| scrolling) || !mouse_held.is_empty() {
+        due.0 = Some(now + RESTACK_DELAY);
+        next_wake.within(RESTACK_DELAY);
+        return;
+    }
+    due.0 = None;
+    if mission_control.0 {
+        return;
+    }
+
+    let strip = active_display.active_strip();
+    let workspace_id = strip.id();
+    if layers
+        .iter()
+        .any(|layer| layer.workspace_id == workspace_id && !layer.front)
+    {
+        return;
+    }
+    // Only a tile's focus is worth restoring this way; a focused floating
+    // window is on top already.
+    let Some((focused, focused_entity)) = windows.focused() else {
+        return;
+    };
+    if !strip.contains(focused_entity) {
+        return;
+    }
+
+    let display_bounds = active_display.bounds();
+    let floats = visible_floating_entities(&windows, &window_manager, workspace_id, display_bounds)
+        .into_iter()
+        .filter_map(|entity| Some((entity, windows.get(entity)?.id(), windows.frame(entity)?)))
+        .collect::<Vec<_>>();
+    if floats.is_empty() {
+        return;
+    }
+    let tiles = strip
+        .all_windows()
+        .into_iter()
+        .filter_map(|entity| {
+            let frame = windows.frame(entity)?;
+            (!display_bounds.intersect(frame).is_empty())
+                .then_some((windows.get(entity)?.id(), frame))
+        })
+        .collect::<Vec<_>>();
+    let Some(order) = window_manager.windows_on_screen() else {
+        return;
+    };
+    let mut buried = buried_floats(&floats, &tiles, &order);
+    if buried.is_empty() {
+        return;
+    }
+    // The floating window used last ends up on top.
+    if let Some(last) = focus_history.last_floating(workspace_id)
+        && let Some(index) = buried.iter().position(|entity| *entity == last)
+    {
+        let last = buried.remove(index);
+        buried.push(last);
+    }
+
+    let Some(focused_psn) = windows.psn(focused.id(), &apps) else {
+        return;
+    };
+    let mut on_top = None;
+    for entity in buried {
+        let Some(window) = windows.get(entity) else {
+            continue;
+        };
+        let Some(psn) = windows.psn(window.id(), &apps) else {
+            continue;
+        };
+        debug!("lifting floating window {} above the ribbon", window.id());
+        window.focus_with_raise(psn);
+        on_top = Some((window, psn));
+    }
+    if let Some((window, psn)) = on_top {
+        focused.focus_without_raise(focused_psn, window, psn);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +403,34 @@ mod tests {
             anchored_window_x(200 + 3000, 300, viewport, Some(3000), 5),
             200
         );
+    }
+
+    #[test]
+    fn only_floats_under_an_overlapping_tile_are_buried() {
+        let mut world = bevy::ecs::world::World::new();
+        let (a, b, c) = (
+            world.spawn(()).id(),
+            world.spawn(()).id(),
+            world.spawn(()).id(),
+        );
+        let floats = [
+            (a, 10, IRect::new(100, 100, 300, 300)),
+            (b, 11, IRect::new(250, 100, 400, 300)),
+            (c, 12, IRect::new(900, 100, 1000, 300)),
+        ];
+        let tiles = [
+            (1, IRect::new(0, 0, 500, 800)),
+            (2, IRect::new(500, 0, 1000, 800)),
+        ];
+        // 11 is above the tile it overlaps, 10 and 12 are below theirs.
+        assert_eq!(
+            buried_floats(&floats, &tiles, &[11, 1, 10, 2, 12]),
+            vec![c, a]
+        );
+        // Everything above the tiles: nothing to do.
+        assert!(buried_floats(&floats, &tiles, &[10, 11, 12, 1, 2]).is_empty());
+        // Touching edges is not covering.
+        let edge = [(a, 10, IRect::new(1000, 0, 1100, 100))];
+        assert!(buried_floats(&edge, &tiles, &[1, 2, 10]).is_empty());
     }
 }

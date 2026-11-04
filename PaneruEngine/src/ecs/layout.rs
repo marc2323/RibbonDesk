@@ -250,8 +250,18 @@ impl Plugin for LayoutEventsPlugin {
                     .after(super::systems::window_moved_update_frame)
                     .before(super::workspace::show_active_workspace)
                     .run_if(not(resource_exists::<Initializing>)),
+                (
+                    super::floating::request_float_restack,
+                    super::floating::keep_floating_on_top,
+                )
+                    .chain()
+                    .after(super::floating::follow_ribbon_anchors)
+                    .run_if(not(resource_exists::<Initializing>))
+                    .run_if(|config: Res<Config>| config.floating_on_top())
+                    .run_if(super::overview::inactive),
             ),
         );
+        app.init_resource::<super::floating::FloatRestackDue>();
     }
 }
 

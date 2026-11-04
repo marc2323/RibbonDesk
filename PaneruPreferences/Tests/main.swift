@@ -286,3 +286,12 @@ let optedOutLua = optedOut.luaSource(disabledSpaceIDs: [])
 assert(optedOutLua.contains("floating_follows_ribbon = false") && optedOutLua.contains("trackpad_haptics = false"))
 assert(Preferences.defaults.luaSource(disabledSpaceIDs: []).contains("floating_follows_ribbon = true"))
 print("Floating follow and trackpad haptics preferences: enabled migration, persistence and Lua export passed.")
+
+assert(legacy.floatingOnTop, "existing installs keep floating windows on top")
+assert(Preferences.defaults.luaSource(disabledSpaceIDs: []).contains("floating_on_top = true"))
+var buriedFloats = Preferences.defaults
+buriedFloats.floatingOnTop = false
+let buriedRoundTrip = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(buriedFloats))
+assert(!buriedRoundTrip.validated.floatingOnTop)
+assert(buriedFloats.luaSource(disabledSpaceIDs: []).contains("floating_on_top = false"))
+print("Floating on top preference: enabled migration, persistence and Lua export passed.")

@@ -84,6 +84,14 @@ real_dofile(source)
 assert(not configured.options.floating_follows_ribbon and not configured.swipe.haptics)
 print("Floating follow and haptics configuration: enabled defaults and opt-outs passed.")
 
+preferences = {}
+real_dofile(source)
+assert(configured.options.floating_on_top)
+preferences = { floating_on_top = false }
+real_dofile(source)
+assert(not configured.options.floating_on_top)
+print("Floating on top configuration: enabled default and opt-out passed.")
+
 app_behavior = { ["com.example.editor"] = "ribbon", ["com.example.chat"] = "floating", ["com.example.browser"] = "ask", ["local.paneru.preferences"] = "ribbon" }
 real_dofile(source)
 assert(configured.options.default_floating == true)

@@ -476,7 +476,8 @@ fn reparent_existing_workspaces(
 }
 
 /// Tracks whether floating windows on a workspace sit above or behind tiled
-/// ones in the OS z-order. Default is `Front` (floats above tiles).
+/// ones in the OS z-order. Starts in front when `floating_on_top` is on, so
+/// the first toggle sends the floats behind and stops keeping them on top.
 #[derive(Clone, Component, Copy)]
 pub struct FloatingLayer {
     pub workspace_id: WorkspaceId,
@@ -484,10 +485,10 @@ pub struct FloatingLayer {
 }
 
 impl FloatingLayer {
-    pub fn new(workspace_id: WorkspaceId) -> Self {
+    pub fn new(workspace_id: WorkspaceId, front: bool) -> Self {
         Self {
             workspace_id,
-            front: false,
+            front,
         }
     }
 
