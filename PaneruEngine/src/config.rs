@@ -515,6 +515,12 @@ impl Config {
             .unwrap_or(false)
     }
 
+    /// Floating windows are kept above the ribbon's tiled windows in the
+    /// window order, so a click on a tile cannot bury them.
+    pub fn floating_on_top(&self) -> bool {
+        self.inner().options.floating_on_top.unwrap_or(false)
+    }
+
     /// Returns `true` if any window rule for the given bundle ID requests that the
     /// process be forcibly managed even when macOS reports it as unobservable.
     pub fn should_force_manage_process(&self, process: &dyn ProcessApi) -> bool {
@@ -1431,6 +1437,10 @@ pub struct MainOptions {
     /// Floating windows move with the ribbon beneath them, keeping the offset
     /// they were opened or last dragged to. Default: false.
     pub floating_follows_ribbon: Option<bool>,
+    /// Floating windows stay above the ribbon's tiled windows: when a tile is
+    /// clicked or focused over one, the floating window is lifted back on top
+    /// and the tile keeps focus. Default: false.
+    pub floating_on_top: Option<bool>,
     /// Enables or disables focus follows mouse behavior.
     pub focus_follows_mouse: Option<bool>,
     /// Hold a manually scrolled viewport until a managed window is Command-clicked.

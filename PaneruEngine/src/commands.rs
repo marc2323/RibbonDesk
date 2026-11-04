@@ -259,7 +259,7 @@ fn pick_nearest_in_direction(
         .map(|(entity, _)| entity)
 }
 
-fn visible_floating_entities(
+pub(crate) fn visible_floating_entities(
     windows: &Windows,
     window_manager: &WindowManager,
     workspace_id: WorkspaceId,
@@ -559,6 +559,7 @@ fn command_raise_floating(
 /// window above another app's frontmost window, so the target's app must be
 /// made frontmost. Other windows in the new top tier are raised within their
 /// own apps' stacks as a best-effort.
+#[allow(clippy::too_many_arguments)]
 fn command_toggle_floating_layer(
     mut messages: MessageReader<Event>,
     active_display: ActiveDisplay,
@@ -566,6 +567,7 @@ fn command_toggle_floating_layer(
     focus_history: Res<FocusHistory>,
     window_manager: Res<WindowManager>,
     windows: Windows,
+    config: Res<Config>,
     mut commands: Commands,
 ) {
     if filter_window_operations(&mut messages, |op| {
@@ -592,9 +594,11 @@ fn command_toggle_floating_layer(
             }
         })
         .unwrap_or_else(|| {
-            let layer = FloatingLayer::new(workspace_id);
+            // No layer yet: start from the default and flip it, like a
+            // workspace that has one.
+            let layer = FloatingLayer::new(workspace_id, !config.floating_on_top());
             commands.spawn((layer, ChildOf(active_display.entity())));
-            false
+            layer.front
         });
 
     let visible_floats =

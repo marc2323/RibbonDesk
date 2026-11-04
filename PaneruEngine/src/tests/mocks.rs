@@ -93,6 +93,9 @@ struct MockStateInner {
     /// window server still reports them on screen: a background native tab.
     background_tabs: HashSet<WinID>,
     native_tab_queries: (usize, usize),
+    /// Window order, front to back, for windows something raised. Windows
+    /// never raised follow them in id order.
+    stacking: Vec<WinID>,
     close_requests: Vec<WinID>,
     quit_requests: Vec<Pid>,
     padding_requests: Vec<(WinID, bool, i32)>,
@@ -118,11 +121,40 @@ impl MockState {
                 unordered_windows: HashSet::new(),
                 background_tabs: HashSet::new(),
                 native_tab_queries: (0, 0),
+                stacking: Vec::new(),
                 close_requests: Vec::new(),
                 quit_requests: Vec::new(),
                 padding_requests: Vec::new(),
             })),
         }
+    }
+
+    /// Puts a window in front of all others, as a click or a raise does.
+    pub fn raise_window(&self, id: WinID) {
+        let mut inner = self.inner.force_write();
+        inner.stacking.retain(|other| *other != id);
+        inner.stacking.insert(0, id);
+    }
+
+    /// The window order on screen, front to back.
+    pub fn stacking_order(&self) -> Vec<WinID> {
+        let inner = self.inner.force_read();
+        let mut windows = inner
+            .windows
+            .iter()
+            .filter_map(|(id, window)| window.visible.then_some(*id))
+            .collect::<Vec<_>>();
+        windows.sort_unstable_by_key(|id| {
+            (
+                inner
+                    .stacking
+                    .iter()
+                    .position(|other| other == id)
+                    .unwrap_or(usize::MAX),
+                *id,
+            )
+        });
+        windows
     }
 
     pub fn native_tab_queries(&self) -> (usize, usize) {
@@ -495,6 +527,7 @@ impl MockState {
 
         let s = self.clone();
         mw.expect_focus_with_raise().returning(move |_psn| {
+            s.raise_window(id);
             s.focus_window(id);
         });
 
@@ -609,7 +642,9 @@ impl MockState {
 
         // Fill in remaining defaults
         mw.expect_element().return_const(None);
-        mw.expect_raise_without_focus().return_const(());
+        let s = self.clone();
+        mw.expect_raise_without_focus()
+            .returning(move || s.raise_window(id));
         let s = self.clone();
         mw.expect_request_close().returning(move || {
             s.inner.force_write().close_requests.push(id);
@@ -837,15 +872,7 @@ impl MockState {
         let s = self.clone();
         wm.expect_windows_on_screen().returning(move || {
             s.inner.force_write().native_tab_queries.0 += 1;
-            let windows = s
-                .inner
-                .force_read()
-                .windows
-                .iter()
-                .filter_map(|(id, window)| window.visible.then_some(id))
-                .copied()
-                .collect::<Vec<_>>();
-            Some(windows)
+            Some(s.stacking_order())
         });
 
         let s = self.clone();

@@ -179,6 +179,22 @@ Late move notifications for frames the strip has already left fall inside the
 is never changed. The system is `ecs/floating.rs`; it reads cached ECS
 geometry only and does no work while nothing moves.
 
+### Floating windows stay on top
+
+With `floating_on_top` (the companion's **Floating stays on top**, on by
+default) a mouse-up, or focus landing on a tile, schedules a check 120 ms later
+(`RESTACK_DELAY`), once the window server has raised what was clicked. The
+check reads the on-screen window order and finds visible floating windows that
+a tile overlapping them sits above (`buried_floats`). An accessibility raise
+cannot lift a window over another app's frontmost window, so each buried
+floating window is focused with a raise, and focus then returns to the tile
+without a raise; the tile keeps focus and the floating windows end on top, the
+most recently used one highest. The check waits while the strip scrolls or the
+mouse is held, skips Mission Control and Overview, and does nothing while the
+floating windows are already on top. `window_togglefloatlayer` sending floats
+behind the tiles turns it off for that workspace until toggled back. The
+systems are in `ecs/floating.rs`.
+
 ### Event-loop pacing
 
 The idle pump doubles its wait after each quiet pass (1, 2, 4 … ms) up to 1 s,

@@ -3,9 +3,14 @@ use std::time::Duration;
 use bevy::prelude::*;
 
 use crate::config::Config;
-use crate::ecs::floating::{ANCHOR_SETTLE, RibbonAnchor};
-use crate::ecs::{ActiveWorkspaceMarker, Position, Unmanaged, layout::LayoutStrip};
+use objc2_core_foundation::CGPoint;
+
+use crate::commands::{Command, Operation};
+use crate::ecs::floating::{ANCHOR_SETTLE, RESTACK_DELAY, RibbonAnchor};
+use crate::ecs::{ActiveWorkspaceMarker, FocusedMarker, Position, Unmanaged, layout::LayoutStrip};
 use crate::events::Event;
+use crate::manager::Window;
+use crate::platform::{Modifiers, WinID};
 
 use super::*;
 
@@ -99,4 +104,99 @@ fn managing_a_floating_window_drops_its_anchor() {
         .insert(Unmanaged::Minimized);
     harness.advance(Duration::from_millis(100));
     assert!(harness.world().get::<RibbonAnchor>(float).is_none());
+}
+
+fn on_top_harness(on_top: bool) -> TestHarness {
+    let config = Config::try_from(format!("[options]\nfloating_on_top = {on_top}\n").as_str())
+        .expect("valid config");
+    let mut harness = TestHarness::new().with_config(config).with_windows(4);
+    harness.run(vec![Event::MenuOpened { window_id: 0 }]);
+    let float = find_window_entity(3, harness.world());
+    harness
+        .world()
+        .entity_mut(float)
+        .insert(Unmanaged::Floating);
+    harness.advance(Duration::from_secs(1));
+    harness
+}
+
+fn focused_id(world: &mut World) -> WinID {
+    let mut query = world.query_filtered::<&Window, With<FocusedMarker>>();
+    query.single(world).expect("one focused window").id()
+}
+
+/// Puts the floating window over the focused tile, then clicks the tile so it
+/// comes to the front, as clicking it on screen does.
+fn click_tile_over_float(harness: &mut TestHarness) -> WinID {
+    let tile = focused_id(harness.world());
+    assert_ne!(tile, 3, "a tile has focus");
+    let tile_entity = find_window_entity(tile, harness.world());
+    let tile_origin = harness
+        .world()
+        .get::<Position>(tile_entity)
+        .expect("tile position")
+        .0;
+    let float = find_window_entity(3, harness.world());
+    harness.world().get_mut::<Position>(float).expect("float").0 =
+        tile_origin + bevy::math::IVec2::new(40, 40);
+    harness.advance(Duration::from_secs(1));
+
+    harness.mock_state.raise_window(tile);
+    harness.world().write_message(Event::MouseUp {
+        point: CGPoint::new(f64::from(tile_origin.x + 10), f64::from(tile_origin.y + 10)),
+        modifiers: Modifiers::empty(),
+    });
+    tile
+}
+
+fn above(order: &[WinID], upper: WinID, lower: WinID) -> bool {
+    let rank = |id| order.iter().position(|other| *other == id);
+    rank(upper) < rank(lower)
+}
+
+#[test]
+fn a_click_on_a_tile_lifts_the_floating_window_back_on_top() {
+    let mut harness = on_top_harness(true);
+    let tile = click_tile_over_float(&mut harness);
+    assert!(
+        above(&harness.mock_state.stacking_order(), tile, 3),
+        "the click buried the floating window"
+    );
+
+    harness.advance(RESTACK_DELAY * 3);
+    assert!(
+        above(&harness.mock_state.stacking_order(), 3, tile),
+        "the floating window is back above the tile"
+    );
+    assert_eq!(focused_id(harness.world()), tile, "the tile keeps focus");
+
+    // Settled: another check finds nothing to do.
+    let order = harness.mock_state.stacking_order();
+    harness.world().write_message(Event::MouseUp {
+        point: CGPoint::new(5.0, 5.0),
+        modifiers: Modifiers::empty(),
+    });
+    harness.advance(RESTACK_DELAY * 3);
+    assert_eq!(harness.mock_state.stacking_order(), order);
+    assert_eq!(focused_id(harness.world()), tile);
+}
+
+#[test]
+fn floating_windows_can_be_buried_when_keeping_them_on_top_is_off() {
+    let mut harness = on_top_harness(false);
+    let tile = click_tile_over_float(&mut harness);
+    harness.advance(RESTACK_DELAY * 3);
+    assert!(above(&harness.mock_state.stacking_order(), tile, 3));
+}
+
+#[test]
+fn sending_floats_behind_the_tiles_stops_keeping_them_on_top() {
+    let mut harness = on_top_harness(true);
+    harness.world().write_message(Event::Command {
+        command: Command::Window(Operation::ToggleFloatingLayer),
+    });
+    harness.advance(Duration::from_millis(200));
+    let tile = click_tile_over_float(&mut harness);
+    harness.advance(RESTACK_DELAY * 3);
+    assert!(above(&harness.mock_state.stacking_order(), tile, 3));
 }

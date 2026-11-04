@@ -137,6 +137,8 @@ struct SettingsView: View {
             toggleRow("Overview animation", detail: "Off switches instantly", value: $model.overviewAnimation)
             toggleRow("Floating follows ribbon", detail: "Scroll together", value: $model.floatingFollowsRibbon)
                 .help("Floating windows keep their place relative to the ribbon windows beneath them and move with the ribbon when you scroll. Drag a floating window to set a new place.")
+            toggleRow("Floating stays on top", detail: "Above ribbon windows", value: $model.floatingOnTop)
+                .help("Floating windows stay above the ribbon windows. Clicking a ribbon window under one lifts the floating window back on top, and the ribbon window keeps focus.")
             Button("App Behavior…") { model.appBehaviorAction?() }
                 .help("Choose how new windows open, remember app choices, and view the activity log.")
             if !model.currentDesktopEnabled { caption("Enable This Desktop to start window management here.") }

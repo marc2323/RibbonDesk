@@ -75,6 +75,7 @@ export are stored in `~/.config/paneru/app-behavior.json` and `app-behavior.lua`
 | **Quit** | Stop the engine and close the companion. |
 | **Overview animation** | Off switches instantly; on restores the 160 ms zoom. Reduce Motion disables the zoom. |
 | **Floating follows ribbon** | On by default. A floating window keeps its place relative to the Ribbon windows beneath it and scrolls with them, wrapping with an infinite ribbon. Drag it to give it a new place. Off leaves floating windows fixed on screen. |
+| **Floating stays on top** | On by default. Floating windows stay above Ribbon windows: clicking a Ribbon window that covers one lifts the floating window back on top, and the Ribbon window keeps focus. Off lets Ribbon windows cover floating windows. |
 
 Overview controls are listed in the [main README](../README.md#ribbon-overview).
 The view uses one-third scale; unusually short displays can impose a smaller

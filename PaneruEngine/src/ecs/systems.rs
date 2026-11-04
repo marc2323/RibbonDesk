@@ -162,7 +162,12 @@ const PUMP_MAX_EVENTS: usize = 256;
 ///
 /// * `window_manager` - The `WindowManager` resource for querying display information.
 /// * `commands` - Bevy commands to spawn entities.
-pub fn gather_displays(window_manager: Res<WindowManager>, mut commands: Commands) {
+pub fn gather_displays(
+    window_manager: Res<WindowManager>,
+    config: Option<Res<Config>>,
+    mut commands: Commands,
+) {
+    let floating_front = config.is_some_and(|config| config.floating_on_top());
     let Ok(active_display_id) = window_manager.active_display_id() else {
         error!("Unable to get active display id!");
         return;
@@ -185,7 +190,7 @@ pub fn gather_displays(window_manager: Res<WindowManager>, mut commands: Command
         for id in workspaces {
             let active = id == active_space;
             commands.spawn_layout_strip(LayoutStrip::new(id, 0), origin.0, entity, active);
-            commands.spawn((FloatingLayer::new(id), ChildOf(entity)));
+            commands.spawn((FloatingLayer::new(id, floating_front), ChildOf(entity)));
         }
     }
 }

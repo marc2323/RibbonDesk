@@ -698,6 +698,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
     let MainOptions {
         default_floating: _,
         floating_follows_ribbon: _,
+        floating_on_top: _,
         focus_follows_mouse: _,
         preserve_scroll_until_click: _,
         disabled_spaces: _,
@@ -739,6 +740,7 @@ fn config_to_lua_table(lua: &Lua, config: &Config) -> mlua::Result<Table> {
 
     options.set("default_floating", config.default_floating())?;
     options.set("floating_follows_ribbon", config.floating_follows_ribbon())?;
+    options.set("floating_on_top", config.floating_on_top())?;
     options.set("focus_follows_mouse", config.focus_follows_mouse())?;
     options.set("disabled_spaces", config.disabled_spaces())?;
     options.set(
